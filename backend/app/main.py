@@ -20,6 +20,9 @@ app.add_middleware(
         "http://127.0.0.1:3000",
         "http://127.0.0.1:5173",
         "http://127.0.0.1:8080",
+        "https://www.train-it.app",
+        "https://trainit-frontend-szho.onrender.com/",
+        "https://train-it.app/",
         "null",  # For file:// protocol
         "*"  # Allow all origins for development
     ],
