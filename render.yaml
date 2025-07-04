@@ -6,8 +6,9 @@ services:
     startCommand: uvicorn backend.app.main:app --host 0.0.0.0 --port 10000
     envVars:
       - key: DATABASE_URL
-        fromDatabase: trainit-db
-        property: connectionString
+        fromDatabase:
+          name: trainit-db
+          property: connectionString
     plan: free
     autoDeploy: true
     healthCheckPath: /docs
@@ -25,4 +26,4 @@ services:
 
 databases:
   - name: trainit-db
-    plan: free 
+    plan: free
