@@ -1188,7 +1188,7 @@ function TrainingPlansListPage({ token, onLogout }: { token: string; onLogout: (
                                       borderRadius: 8,
                                       fontSize: '0.9em',
                                       whiteSpace: 'pre-wrap',
-                                      maxWidth: 300,
+                                      maxWidth: 900,
                                       zIndex: 10,
                                       boxShadow: '0 2px 8px rgba(0,0,0,0.15)'
                                     }}>
