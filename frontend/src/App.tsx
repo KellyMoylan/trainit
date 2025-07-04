@@ -1398,7 +1398,7 @@ function TrainingPlansListPage({ token, onLogout }: { token: string; onLogout: (
 
 function App() {
   const [token, setToken] = useState<string | null>(localStorage.getItem('token'))
-  // const [_, setUser] = useState<User | null>(null)
+  const [_, setUser] = useState<User | null>(null)
 
   const handleLogin = (newToken: string, userData: User) => {
     setToken(newToken)
