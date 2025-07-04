@@ -3,6 +3,8 @@ import { Routes, Route, Link, useNavigate } from 'react-router-dom'
 import './App.css'
 import React from 'react'
 
+const apiUrl = import.meta.env.VITE_API_URL;
+
 interface User {
   id: number
   email: string
@@ -21,7 +23,7 @@ function LoginPage({ onLogin }: { onLogin: (token: string, user: User) => void }
     setError('')
     
     try {
-      const response = await fetch('http://localhost:8000/auth/login', {
+      const response = await fetch(`${apiUrl}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
@@ -93,7 +95,7 @@ function SignupPage({ onLogin }: { onLogin: (token: string, user: User) => void 
     }
 
     try {
-      const response = await fetch('http://localhost:8000/auth/signup', {
+      const response = await fetch(`${apiUrl}/auth/signup`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password, organization_name: organizationName }),
@@ -238,7 +240,7 @@ function AnimalManagementPage({ token, onLogout }: { token: string; onLogout: ()
   // Fetch animals from backend
   useEffect(() => {
     setLoading(true)
-    fetch('http://localhost:8000/animals/', {
+    fetch(`${apiUrl}/animals/`, {
       headers: { 
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`
@@ -265,7 +267,7 @@ function AnimalManagementPage({ token, onLogout }: { token: string; onLogout: ()
     e.preventDefault()
     setSubmitting(true)
     setError(null)
-    fetch('http://localhost:8000/animals/', {
+    fetch(`${apiUrl}/animals/`, {
       method: 'POST',
       headers: { 
         'Content-Type': 'application/json',
@@ -406,7 +408,7 @@ function TrainingPlanPage({ token, onLogout }: { token: string; onLogout: () => 
   // Fetch animals from backend
   useEffect(() => {
     setLoading(true)
-    fetch('http://localhost:8000/animals/', {
+    fetch(`${apiUrl}/animals/`, {
       headers: { 
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`
@@ -461,7 +463,7 @@ function TrainingPlanPage({ token, onLogout }: { token: string; onLogout: () => 
       }))
     }
 
-    fetch(`http://localhost:8000/plans/animal/${form.animal_id}`, {
+    fetch(`${apiUrl}/plans/animal/${form.animal_id}`, {
       method: 'POST',
       headers: { 
         'Content-Type': 'application/json',
@@ -696,7 +698,7 @@ function TrainingPlansListPage({ token, onLogout }: { token: string; onLogout: (
   // Fetch animals on mount
   useEffect(() => {
     setLoading(true)
-    fetch('http://localhost:8000/animals/', {
+    fetch(`${apiUrl}/animals/`, {
       headers: { 
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`
@@ -718,7 +720,7 @@ function TrainingPlansListPage({ token, onLogout }: { token: string; onLogout: (
   // Fetch plans for an animal
   const fetchPlans = (animalId: number) => {
     if (plansByAnimal[animalId]) return // already loaded
-    fetch(`http://localhost:8000/plans/animal/${animalId}`, {
+    fetch(`${apiUrl}/plans/animal/${animalId}`, {
       headers: { 
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`
@@ -737,7 +739,7 @@ function TrainingPlansListPage({ token, onLogout }: { token: string; onLogout: (
 
   // Fetch steps for a plan
   const fetchSteps = (planId: number) => {
-    fetch(`http://localhost:8000/plans/${planId}`, {
+    fetch(`${apiUrl}/plans/${planId}`, {
       headers: { 
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`
@@ -748,7 +750,7 @@ function TrainingPlansListPage({ token, onLogout }: { token: string; onLogout: (
         if (plan !== null && plan.steps) {
           setSteps(plan.steps);
           plan.steps.forEach((step: any) => {
-            fetch(`http://localhost:8000/steps/${step.id}/notes`, {
+            fetch(`${apiUrl}/steps/${step.id}/notes`, {
               headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${token}`
@@ -770,7 +772,7 @@ function TrainingPlansListPage({ token, onLogout }: { token: string; onLogout: (
 
   // Fetch session notes for a plan
   const fetchSessionNotes = (planId: number) => {
-    fetch(`http://localhost:8000/plans/${planId}/notes`, {
+    fetch(`${apiUrl}/plans/${planId}/notes`, {
       headers: { 
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`
@@ -979,7 +981,7 @@ function TrainingPlansListPage({ token, onLogout }: { token: string; onLogout: (
                                       setEditLoading(true);
                                       setEditError(null);
                                       try {
-                                        const response = await fetch(`http://localhost:8000/steps/${step.id}`, {
+                                        const response = await fetch(`${apiUrl}/steps/${step.id}`, {
                                           method: 'PUT',
                                           headers: {
                                             'Content-Type': 'application/json',
@@ -1052,7 +1054,7 @@ function TrainingPlansListPage({ token, onLogout }: { token: string; onLogout: (
                                       setAddSessionLoading(true);
                                       setAddSessionError(null);
                                       try {
-                                        const res = await fetch(`http://localhost:8000/steps/${step.id}/notes`, {
+                                        const res = await fetch(`${apiUrl}/steps/${step.id}/notes`, {
                                           method: 'POST',
                                           headers: {
                                             'Content-Type': 'application/json',
@@ -1065,7 +1067,7 @@ function TrainingPlansListPage({ token, onLogout }: { token: string; onLogout: (
                                         });
                                         if (!res.ok) throw new Error('Failed to add session note');
                                         if (addSessionForm.markComplete && !step.is_complete) {
-                                          await fetch(`http://localhost:8000/steps/${step.id}/complete`, {
+                                          await fetch(`${apiUrl}/steps/${step.id}/complete`, {
                                             method: 'POST',
                                             headers: {
                                               'Content-Type': 'application/json',
@@ -1075,7 +1077,7 @@ function TrainingPlansListPage({ token, onLogout }: { token: string; onLogout: (
                                           setSteps((prev: any[]) => prev.map((s, i) => i === idx ? { ...s, is_complete: true } : s));
                                         }
                                         // Refetch session notes for this step
-                                        const notesRes = await fetch(`http://localhost:8000/steps/${step.id}/notes`, {
+                                        const notesRes = await fetch(`${apiUrl}/steps/${step.id}/notes`, {
                                           headers: {
                                             'Content-Type': 'application/json',
                                             'Authorization': `Bearer ${token}`
