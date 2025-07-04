@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Routes, Route, Link, useNavigate } from 'react-router-dom'
 import './App.css'
+import React from 'react'
 
 interface User {
   id: number
@@ -78,11 +79,19 @@ function SignupPage({ onLogin }: { onLogin: (token: string, user: User) => void 
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
 
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
     setError('')
     
+    if (!emailRegex.test(email)) {
+      setError('Please enter a valid email address.')
+      setLoading(false)
+      return
+    }
+
     try {
       const response = await fetch('http://localhost:8000/auth/signup', {
         method: 'POST',
@@ -647,6 +656,30 @@ function TrainingPlansListPage({ token, onLogout }: { token: string; onLogout: (
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [selectedStepIdx, setSelectedStepIdx] = useState<number | null>(null)
+  const [editingStepIdx, setEditingStepIdx] = useState<number | null>(null);
+  const [editForm, setEditForm] = useState<any>({});
+  const [editLoading, setEditLoading] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+  // In TrainingPlansListPage, add state for addSessionStepId (number|null) and addSessionForm (object: note, performed_date, markComplete)
+  // Pass these and handlers to StepBarWithTooltip
+  // In StepBarWithTooltip, render the Add Session button and form using the passed props
+  // On submit, call the parent's handler to add the session and refresh notes
+  const [addSessionStepId, setAddSessionStepId] = useState<number | null>(null);
+  const [addSessionForm, setAddSessionForm] = useState<any>({});
+  const [addSessionLoading, setAddSessionLoading] = useState(false);
+  const [addSessionError, setAddSessionError] = useState<string | null>(null);
+  // In TrainingPlansListPage, add state for sessionNotesByStepId: { [stepId: number]: any[] }
+  // After fetching steps for a plan, fetch session notes for each step and store in sessionNotesByStepId
+  // Pass sessionNotesByStepId[step.id] as a prop to StepBarWithTooltip
+  const [sessionNotesByStepId, setSessionNotesByStepId] = useState<{ [stepId: number]: any[] }>({});
+  const [activeSessionNoteId, setActiveSessionNoteId] = useState<number | null>(null);
+
+  // Add a global click handler to close the tooltip when clicking anywhere
+  useEffect(() => {
+    const handleClick = () => setActiveSessionNoteId(null);
+    window.addEventListener('click', handleClick);
+    return () => window.removeEventListener('click', handleClick);
+  }, []);
 
   // Helper for API responses
   const handleApiResponse = async (response: Response) => {
@@ -713,15 +746,46 @@ function TrainingPlansListPage({ token, onLogout }: { token: string; onLogout: (
       .then(handleApiResponse)
       .then(plan => {
         if (plan !== null && plan.steps) {
-          setSteps(plan.steps)
+          setSteps(plan.steps);
+          plan.steps.forEach((step: any) => {
+            fetch(`http://localhost:8000/steps/${step.id}/notes`, {
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+              }
+            })
+              .then(res => res.ok ? res.json() : [])
+              .then(notes => {
+                setSessionNotesByStepId(prev => ({ ...prev, [step.id]: notes }));
+              });
+          });
         } else {
-          setSteps([])
+          setSteps([]);
         }
       })
       .catch(() => {
         setError('Failed to load plan steps')
       })
   }
+
+  // Fetch session notes for a plan
+  const fetchSessionNotes = (planId: number) => {
+    fetch(`http://localhost:8000/plans/${planId}/notes`, {
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+    })
+      .then(handleApiResponse)
+      .then(notes => {
+        if (notes !== null) {
+          setSessionNotesByStepId(prev => ({ ...prev, [planId]: notes }));
+        }
+      })
+      .catch(() => {
+        setSessionNotesByStepId(prev => ({ ...prev, [planId]: [] }));
+      });
+  };
 
   const handleAnimalClick = (animalId: number) => {
     setExpandedAnimalId(expandedAnimalId === animalId ? null : animalId)
@@ -730,11 +794,13 @@ function TrainingPlansListPage({ token, onLogout }: { token: string; onLogout: (
     }
     setSelectedPlan(null)
     setSteps([])
+    setSessionNotesByStepId({}); // Clear session notes when animal changes
   }
 
   const handlePlanClick = (plan: any) => {
     setSelectedPlan(plan)
     fetchSteps(plan.id)
+    fetchSessionNotes(plan.id) // Fetch session notes for the selected plan
   }
 
   // Click outside handler
@@ -749,6 +815,10 @@ function TrainingPlansListPage({ token, onLogout }: { token: string; onLogout: (
     }
     return () => document.removeEventListener('mousedown', handleClick)
   }, [selectedStepIdx])
+
+  const handleSessionNotesUpdate = (stepId: number, notes: any[]) => {
+    setSessionNotesByStepId(prev => ({ ...prev, [stepId]: notes }));
+  };
 
   return (
     <div className="app-container" style={{ width: '66vw', maxWidth: 1200 }}>
@@ -822,6 +892,7 @@ function TrainingPlansListPage({ token, onLogout }: { token: string; onLogout: (
               padding: 24,
               marginTop: 12,
               overflowX: 'auto',
+              overflowY: 'visible', // allow vertical overflow for tooltips
               position: 'relative'
             }}>
               {/* Gantt chart with horizontal bars and cumulative session axis */}
@@ -833,9 +904,7 @@ function TrainingPlansListPage({ token, onLogout }: { token: string; onLogout: (
                 })
                 const totalSessions = cumSessions[cumSessions.length - 1]
                 // Axis ticks (every session)
-                const axisTicks = Array.from({ length: totalSessions + 1 }, (_, i) => i)
-                // Bar colors
-                const barColors = ['#667eea', '#48bb78', '#ed8936', '#f56565', '#38b2ac', '#805ad5', '#ecc94b']
+                const axisTicks = Array.from({ length: totalSessions + 1 }, (_, i) => i + 1)
                 return (
                   <div>
                     {/* Axis */}
@@ -852,18 +921,19 @@ function TrainingPlansListPage({ token, onLogout }: { token: string; onLogout: (
                       ))}
                     </div>
                     {/* Steps as Gantt bars */}
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '90px 1fr', rowGap: 0 }}>
                       {steps.map((step, idx) => (
-                        <div key={step.id} style={{ display: 'flex', alignItems: 'center', gap: 12, position: 'relative' }}>
-                          <div style={{ minWidth: 90, color: '#4a5568', fontWeight: 500 }}>Step {idx + 1}</div>
-                          <div style={{ position: 'relative', height: 32, width: totalSessions * 32 }}>
+                        <React.Fragment key={step.id}>
+                          {/* Row 1: Step label and Gantt bar */}
+                          <div style={{ color: '#4a5568', fontWeight: 500, minWidth: 90 }}>Step {idx + 1}</div>
+                          <div style={{ position: 'relative', height: 32 }}>
                             <div
                               style={{
                                 position: 'absolute',
                                 left: cumSessions[idx] * 32,
                                 width: step.estimated_sessions * 32,
                                 height: 32,
-                                background: barColors[idx % barColors.length],
+                                background: step.is_complete ? '#48bb78' : '#f56565',
                                 borderRadius: 8,
                                 display: 'flex',
                                 alignItems: 'center',
@@ -877,38 +947,257 @@ function TrainingPlansListPage({ token, onLogout }: { token: string; onLogout: (
                               }}
                               onClick={e => {
                                 e.stopPropagation();
-                                setSelectedStepIdx(idx === selectedStepIdx ? null : idx)
+                                setSelectedStepIdx(idx === selectedStepIdx ? null : idx);
                               }}
                             >
                               {idx + 1}
                             </div>
-                            {/* Tooltip window for step description */}
                             {selectedStepIdx === idx && (
                               <div
                                 className="gantt-bar-tooltip"
                                 style={{
                                   position: 'absolute',
-                                  top: 40,
                                   left: cumSessions[idx] * 32,
-                                  minWidth: 180,
-                                  maxWidth: 320,
+                                  top: 40,
+                                  minWidth: 420,
+                                  maxWidth: 600,
                                   background: '#fff',
                                   color: '#2d3748',
                                   border: '1px solid #cbd5e1',
                                   borderRadius: 8,
                                   boxShadow: '0 4px 16px rgba(0,0,0,0.10)',
-                                  padding: '12px 16px',
+                                  padding: '22px 32px',
                                   zIndex: 10,
                                   fontSize: '1em',
                                   whiteSpace: 'pre-line'
                                 }}
                               >
-                                <strong>Step {idx + 1} Description</strong>
-                                <div style={{ marginTop: 6 }}>{step.description || 'No description'}</div>
+                                {editingStepIdx === idx ? (
+                                  <form
+                                    onSubmit={async (e) => {
+                                      e.preventDefault();
+                                      setEditLoading(true);
+                                      setEditError(null);
+                                      try {
+                                        const response = await fetch(`http://localhost:8000/steps/${step.id}`, {
+                                          method: 'PUT',
+                                          headers: {
+                                            'Content-Type': 'application/json',
+                                            'Authorization': `Bearer ${token}`
+                                          },
+                                          body: JSON.stringify({
+                                            name: editForm.name,
+                                            description: editForm.description,
+                                            estimated_sessions: Number(editForm.estimated_sessions),
+                                            is_complete: editForm.is_complete,
+                                          })
+                                        });
+                                        if (!response.ok) {
+                                          throw new Error('Failed to update step');
+                                        }
+                                        const updatedStep = await response.json();
+                                        setSteps((prev: any[]) => prev.map((s, i) => i === idx ? { ...s, ...updatedStep } : s));
+                                        setEditingStepIdx(null);
+                                        setSelectedStepIdx(null);
+                                      } catch (err) {
+                                        setEditError('Failed to update step.');
+                                      } finally {
+                                        setEditLoading(false);
+                                      }
+                                    }}
+                                    style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%', boxSizing: 'border-box', padding: '12px 10px' }}
+                                  >
+                                    <label style={{ fontWeight: 600 }}>Name
+                                      <input
+                                        type="text"
+                                        value={editForm.name ?? step.name}
+                                        onChange={e => setEditForm((f: any) => ({ ...f, name: e.target.value }))}
+                                        style={{ width: '100%', boxSizing: 'border-box', marginTop: 2 }}
+                                        required
+                                      />
+                                    </label>
+                                    <label style={{ fontWeight: 600 }}>Description
+                                      <textarea
+                                        value={editForm.description ?? step.description ?? ''}
+                                        onChange={e => setEditForm((f: any) => ({ ...f, description: e.target.value }))}
+                                        style={{ width: '100%', boxSizing: 'border-box', marginTop: 2 }}
+                                        rows={2}
+                                      />
+                                    </label>
+                                    <label style={{ fontWeight: 600 }}>Estimated Sessions
+                                      <input
+                                        type="number"
+                                        min={1}
+                                        value={editForm.estimated_sessions ?? step.estimated_sessions}
+                                        onChange={e => setEditForm((f: any) => ({ ...f, estimated_sessions: e.target.value }))}
+                                        style={{ width: '100%', boxSizing: 'border-box', marginTop: 2 }}
+                                        required
+                                      />
+                                    </label>
+                                    {editError && <div style={{ color: '#e53e3e', fontSize: '0.95em' }}>{editError}</div>}
+                                    <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                                      <button type="submit" disabled={editLoading} style={{ background: '#48bb78', color: '#fff', border: 'none', borderRadius: 6, padding: '6px 14px', fontWeight: 600 }}>
+                                        {editLoading ? 'Saving...' : 'Save'}
+                                      </button>
+                                      <button type="button" onClick={() => { setEditingStepIdx(null); setEditForm({}); }} style={{ background: '#e2e8f0', color: '#2d3748', border: 'none', borderRadius: 6, padding: '6px 14px', fontWeight: 600 }}>
+                                        Cancel
+                                      </button>
+                                    </div>
+                                  </form>
+                                ) : addSessionStepId === step.id ? (
+                                  <form
+                                    style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%', boxSizing: 'border-box', padding: '12px 10px', marginTop: 12, background: '#f7fafc', borderRadius: 8 }}
+                                    onSubmit={async e => {
+                                      e.preventDefault();
+                                      setAddSessionLoading(true);
+                                      setAddSessionError(null);
+                                      try {
+                                        const res = await fetch(`http://localhost:8000/steps/${step.id}/notes`, {
+                                          method: 'POST',
+                                          headers: {
+                                            'Content-Type': 'application/json',
+                                            'Authorization': `Bearer ${token}`
+                                          },
+                                          body: JSON.stringify({
+                                            note: addSessionForm.note,
+                                            performed_date: addSessionForm.performed_date
+                                          })
+                                        });
+                                        if (!res.ok) throw new Error('Failed to add session note');
+                                        if (addSessionForm.markComplete && !step.is_complete) {
+                                          await fetch(`http://localhost:8000/steps/${step.id}/complete`, {
+                                            method: 'POST',
+                                            headers: {
+                                              'Content-Type': 'application/json',
+                                              'Authorization': `Bearer ${token}`
+                                            }
+                                          });
+                                          setSteps((prev: any[]) => prev.map((s, i) => i === idx ? { ...s, is_complete: true } : s));
+                                        }
+                                        // Refetch session notes for this step
+                                        const notesRes = await fetch(`http://localhost:8000/steps/${step.id}/notes`, {
+                                          headers: {
+                                            'Content-Type': 'application/json',
+                                            'Authorization': `Bearer ${token}`
+                                          }
+                                        });
+                                        const notes = notesRes.ok ? await notesRes.json() : [];
+                                        setAddSessionForm({});
+                                        setAddSessionStepId(null);
+                                        setAddSessionLoading(false);
+                                        setAddSessionError(null);
+                                        setActiveSessionNoteId(null);
+                                        setSelectedStepIdx(null);
+                                        handleSessionNotesUpdate(step.id, notes);
+                                      } catch (err) {
+                                        setAddSessionError('Failed to add session note.');
+                                        setAddSessionLoading(false);
+                                      }
+                                    }}
+                                  >
+                                    <label style={{ fontWeight: 600 }}>
+                                      Session Note
+                                      <textarea
+                                        value={addSessionForm.note || ''}
+                                        onChange={e => setAddSessionForm((f: any) => ({ ...f, note: e.target.value }))}
+                                        style={{ width: '100%', boxSizing: 'border-box', marginTop: 2 }}
+                                        rows={2}
+                                      />
+                                    </label>
+                                    <label style={{ fontWeight: 600 }}>
+                                      Performed Date
+                                      <input
+                                        type="date"
+                                        value={addSessionForm.performed_date || new Date().toISOString().slice(0, 10)}
+                                        onChange={e => setAddSessionForm((f: any) => ({ ...f, performed_date: e.target.value }))}
+                                        style={{ width: '100%', boxSizing: 'border-box', marginTop: 2 }}
+                                      />
+                                    </label>
+                                    <label style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
+                                      <input
+                                        type="checkbox"
+                                        checked={addSessionForm.markComplete || false}
+                                        onChange={e => setAddSessionForm((f: any) => ({ ...f, markComplete: e.target.checked }))}
+                                      />
+                                      Mark step as complete
+                                    </label>
+                                    {addSessionError && <div style={{ color: '#e53e3e', fontSize: '0.95em' }}>{addSessionError}</div>}
+                                    <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                                      <button type="submit" disabled={addSessionLoading} style={{ background: '#3182ce', color: '#fff', border: 'none', borderRadius: 6, padding: '6px 14px', fontWeight: 600 }}>
+                                        {addSessionLoading ? 'Saving...' : 'Submit'}
+                                      </button>
+                                      <button type="button" onClick={() => setAddSessionStepId(null)} style={{ background: '#e2e8f0', color: '#2d3748', border: 'none', borderRadius: 6, padding: '6px 14px', fontWeight: 600 }}>Cancel</button>
+                                    </div>
+                                  </form>
+                                ) : (
+                                  <>
+                                    <strong>Step {idx + 1} Description</strong>
+                                    <div style={{ marginTop: 6 }}>{step.description || 'No description'}</div>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
+                                      <button
+                                        style={{ background: '#3182ce', color: '#fff', border: 'none', borderRadius: 6, padding: '6px 14px', fontWeight: 600, cursor: 'pointer' }}
+                                        onClick={() => {
+                                          setAddSessionStepId(step.id);
+                                          setAddSessionForm({ note: '', performed_date: new Date().toISOString().slice(0, 10), markComplete: false });
+                                        }}
+                                      >Add Session</button>
+                                      <button
+                                        style={{ background: '#3182ce', color: '#fff', border: 'none', borderRadius: 6, padding: '6px 14px', fontWeight: 600, cursor: 'pointer' }}
+                                        onClick={() => {
+                                          setEditingStepIdx(idx);
+                                          setEditForm({
+                                            name: step.name,
+                                            description: step.description,
+                                            estimated_sessions: step.estimated_sessions,
+                                            is_complete: step.is_complete,
+                                          });
+                                        }}
+                                      >Edit Step</button>
+                                    </div>
+                                  </>
+                                )}
                               </div>
                             )}
                           </div>
-                        </div>
+                          {/* Row 2: Empty label cell and blue session bars */}
+                          <div />
+                          <div style={{ position: 'relative', height: 18, paddingTop: 4 }}>
+                            <div style={{ position: 'absolute', left: cumSessions[idx] * 32, display: 'flex', gap: 4 }}>
+                              {(sessionNotesByStepId[step.id] || []).map((note: any, i: number) => (
+                                <div key={note.id || i} style={{ position: 'relative', height: 16, width: 28 }}>
+                                  <div
+                                    style={{ height: 16, width: 28, background: '#3182ce', borderRadius: 6, cursor: 'pointer' }}
+                                    onClick={e => {
+                                      e.stopPropagation();
+                                      e.preventDefault();
+                                      setActiveSessionNoteId(activeSessionNoteId === note.id ? null : note.id);
+                                    }}
+                                  />
+                                  {note.note && activeSessionNoteId === note.id && (
+                                    <div style={{
+                                      display: 'block',
+                                      position: 'absolute',
+                                      left: '50%',
+                                      bottom: '100%',
+                                      transform: 'translateX(-50%)',
+                                      background: '#2d3748',
+                                      color: '#fff',
+                                      padding: '8px 12px',
+                                      borderRadius: 8,
+                                      fontSize: '0.9em',
+                                      whiteSpace: 'pre-wrap',
+                                      maxWidth: 300,
+                                      zIndex: 10,
+                                      boxShadow: '0 2px 8px rgba(0,0,0,0.15)'
+                                    }}>
+                                      {note.note}
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </React.Fragment>
                       ))}
                     </div>
                   </div>
@@ -923,6 +1212,188 @@ function TrainingPlansListPage({ token, onLogout }: { token: string; onLogout: (
       </Link>
     </div>
   )
+}
+
+function StepBarWithTooltip({
+  step, idx, cumSessions, selectedStepIdx, setSelectedStepIdx,
+  editingStepIdx, setEditingStepIdx, editForm, setEditForm,
+  editLoading, setEditLoading, editError, setEditError, token, setSteps, sessionNotes,
+  addSessionStepId, setAddSessionStepId, addSessionForm, setAddSessionForm, addSessionLoading, setAddSessionLoading, addSessionError, setAddSessionError, onSessionNotesUpdate
+}: any) {
+  const [tooltipPos, setTooltipPos] = useState<'below' | 'above'>('below');
+  const barRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (selectedStepIdx === idx && barRef.current) {
+      const rect = barRef.current.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - rect.bottom;
+      setTooltipPos(spaceBelow > 180 ? 'below' : 'above');
+    }
+  }, [selectedStepIdx, idx]);
+
+  // Remove the sessionNotes, setSessionNotes, showAddSession, setShowAddSession, sessionForm, setSessionForm, loadingSessionNotes, setLoadingSessionNotes state from StepBarWithTooltip. Only use the sessionNotes prop.
+
+  return (
+    <div style={{ marginBottom: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, position: 'relative' }}>
+        <div style={{ minWidth: 90, color: '#4a5568', fontWeight: 500 }}>Step {idx + 1}</div>
+        <div ref={barRef} style={{ position: 'relative', height: 32, width: step.estimated_sessions * 32 }}>
+          <div
+            style={{
+              position: 'absolute',
+              left: cumSessions[idx] * 32,
+              width: step.estimated_sessions * 32,
+              height: 32,
+              background: step.is_complete ? '#48bb78' : '#f56565',
+              borderRadius: 8,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#fff',
+              fontWeight: 700,
+              fontSize: '1.1em',
+              boxShadow: '0 2px 8px rgba(102,126,234,0.08)',
+              cursor: 'pointer',
+              zIndex: 2
+            }}
+            onClick={e => {
+              e.stopPropagation();
+              setSelectedStepIdx(idx === selectedStepIdx ? null : idx)
+            }}
+          >
+            {idx + 1}
+          </div>
+          {selectedStepIdx === idx && (
+            <div
+              className="gantt-bar-tooltip"
+              style={{
+                position: 'absolute',
+                left: cumSessions[idx] * 32,
+                [tooltipPos === 'below' ? 'top' : 'bottom']: 40,
+                minWidth: 420,
+                maxWidth: 600,
+                background: '#fff',
+                color: '#2d3748',
+                border: '1px solid #cbd5e1',
+                borderRadius: 8,
+                boxShadow: '0 4px 16px rgba(0,0,0,0.10)',
+                padding: '22px 32px',
+                zIndex: 10,
+                fontSize: '1em',
+                whiteSpace: 'pre-line'
+              }}
+            >
+              {editingStepIdx === idx ? (
+                <form
+                  onSubmit={async (e) => {
+                    e.preventDefault();
+                    setEditLoading(true);
+                    setEditError(null);
+                    try {
+                      const response = await fetch(`http://localhost:8000/steps/${step.id}`, {
+                        method: 'PUT',
+                        headers: {
+                          'Content-Type': 'application/json',
+                          'Authorization': `Bearer ${token}`
+                        },
+                        body: JSON.stringify({
+                          name: editForm.name,
+                          description: editForm.description,
+                          estimated_sessions: Number(editForm.estimated_sessions),
+                          is_complete: editForm.is_complete,
+                        })
+                      });
+                      if (!response.ok) {
+                        throw new Error('Failed to update step');
+                      }
+                      const updatedStep = await response.json();
+                      setSteps((prev: any[]) => prev.map((s, i) => i === idx ? { ...s, ...updatedStep } : s));
+                      setEditingStepIdx(null);
+                      setSelectedStepIdx(null);
+                    } catch (err) {
+                      setEditError('Failed to update step.');
+                    } finally {
+                      setEditLoading(false);
+                    }
+                  }}
+                  style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%', boxSizing: 'border-box', padding: '12px 10px' }}
+                >
+                  <label style={{ fontWeight: 600 }}>Name
+                    <input
+                      type="text"
+                      value={editForm.name ?? step.name}
+                      onChange={e => setEditForm((f: any) => ({ ...f, name: e.target.value }))}
+                      style={{ width: '100%', boxSizing: 'border-box', marginTop: 2 }}
+                      required
+                    />
+                  </label>
+                  <label style={{ fontWeight: 600 }}>Description
+                    <textarea
+                      value={editForm.description ?? step.description ?? ''}
+                      onChange={e => setEditForm((f: any) => ({ ...f, description: e.target.value }))}
+                      style={{ width: '100%', boxSizing: 'border-box', marginTop: 2 }}
+                      rows={2}
+                    />
+                  </label>
+                  <label style={{ fontWeight: 600 }}>Estimated Sessions
+                    <input
+                      type="number"
+                      min={1}
+                      value={editForm.estimated_sessions ?? step.estimated_sessions}
+                      onChange={e => setEditForm((f: any) => ({ ...f, estimated_sessions: e.target.value }))}
+                      style={{ width: '100%', boxSizing: 'border-box', marginTop: 2 }}
+                      required
+                    />
+                  </label>
+                  {editError && <div style={{ color: '#e53e3e', fontSize: '0.95em' }}>{editError}</div>}
+                  <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                    <button type="submit" disabled={editLoading} style={{ background: '#48bb78', color: '#fff', border: 'none', borderRadius: 6, padding: '6px 14px', fontWeight: 600 }}>
+                      {editLoading ? 'Saving...' : 'Save'}
+                    </button>
+                    <button type="button" onClick={() => { setEditingStepIdx(null); setEditForm({}); }} style={{ background: '#e2e8f0', color: '#2d3748', border: 'none', borderRadius: 6, padding: '6px 14px', fontWeight: 600 }}>
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <>
+                  <strong>Step {idx + 1} Description</strong>
+                  <div style={{ marginTop: 6 }}>{step.description || 'No description'}</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
+                    <button
+                      style={{ background: '#3182ce', color: '#fff', border: 'none', borderRadius: 6, padding: '6px 14px', fontWeight: 600, cursor: 'pointer' }}
+                      onClick={() => {
+                        setAddSessionStepId(step.id);
+                        setAddSessionForm({ note: '', performed_date: new Date().toISOString().slice(0, 10), markComplete: false });
+                      }}
+                    >Add Session</button>
+                    <button
+                      style={{ background: '#3182ce', color: '#fff', border: 'none', borderRadius: 6, padding: '6px 14px', fontWeight: 600, cursor: 'pointer' }}
+                      onClick={() => {
+                        setEditingStepIdx(idx);
+                        setEditForm({
+                          name: step.name,
+                          description: step.description,
+                          estimated_sessions: step.estimated_sessions,
+                          is_complete: step.is_complete,
+                        });
+                      }}
+                    >Edit Step</button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+        {sessionNotes.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', marginTop: 2, marginLeft: cumSessions[idx] * 32, gap: 4 }}>
+            {sessionNotes.map((note: any, i: number) => (
+              <div key={note.id || i} style={{ height: 16, width: 28, background: '#3182ce', borderRadius: 6 }} />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function App() {

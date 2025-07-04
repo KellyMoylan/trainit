@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: trainit-backend
+    env: python
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: uvicorn backend.app.main:app --host 0.0.0.0 --port 10000
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase: trainit-db
+        property: connectionString
+    plan: free
+    autoDeploy: true
+    healthCheckPath: /docs
+
+  - type: static
+    name: trainit-frontend
+    buildCommand: cd frontend && npm install && npm run build
+    staticPublishPath: frontend/dist
+    envVars:
+      - key: VITE_API_URL
+        value: https://trainit-backend.onrender.com
+    plan: free
+    autoDeploy: true
+
+databases:
+  - name: trainit-db
+    plan: free 

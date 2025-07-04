@@ -15,7 +15,7 @@ def add_note_to_step(
     result = crud.add_step_session_note(db, step_id, note, current_user.id)
     if not result:
         raise HTTPException(status_code=404, detail="Step not found or not in your organization")
-    return result
+    return schemas.StepSessionNoteOut.model_validate(result)
 
 @router.get("/{step_id}/notes", response_model=List[schemas.StepSessionNoteOut])
 def list_notes_for_step(
