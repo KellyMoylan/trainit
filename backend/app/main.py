@@ -24,7 +24,6 @@ app.add_middleware(
         "https://trainit-frontend-szho.onrender.com/",
         "https://train-it.app/",
         "null",  # For file:// protocol
-        "*"  # Allow all origins for development
     ],
     allow_credentials=True,
     allow_methods=["*"],

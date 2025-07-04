@@ -25,7 +25,7 @@ def list_notes_for_step(
 ):
     return crud.get_notes_for_step(db, step_id, current_user.id)
 
-@router.post("/{step_id}/complete", response_model=schemas.StepSessionNoteOut)
+@router.post("/{step_id}/complete", response_model=schemas.PlanStepOut)
 def mark_step_complete(
     step_id: int,
     current_user: schemas.UserOut = Depends(auth_utils.get_current_user),
@@ -34,7 +34,7 @@ def mark_step_complete(
     result = crud.mark_step_complete(db, step_id, current_user.id)
     if not result:
         raise HTTPException(status_code=404, detail="Step not found or not in your organization")
-    return result
+    return schemas.PlanStepOut.model_validate(result)
 
 @router.put("/{step_id}", response_model=schemas.PlanStepOut)
 def update_step(
