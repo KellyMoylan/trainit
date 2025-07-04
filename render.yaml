@@ -21,7 +21,6 @@ services:
     envVars:
       - key: VITE_API_URL
         value: https://trainit-backend.onrender.com
-    plan: free
     autoDeploy: true
 
 databases:
