@@ -378,6 +378,9 @@ def update_step(db: Session, step_id: int, step_update: schemas.PlanStepUpdate, 
     
     assert_can_edit_plan(db, plan, user_id)
     for field, value in step_update.dict(exclude_unset=True).items():
+        if field == "is_complete":
+            # The column is an integer flag; PostgreSQL refuses a true/false value there even though SQLite accepts it
+            value = 1 if value else 0
         setattr(step, field, value)
     db.commit()
     db.refresh(step)
