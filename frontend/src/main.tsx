@@ -1,8 +1,12 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
+import '@fontsource-variable/inter'
 import './index.css'
 import App from './App.tsx'
 import { BrowserRouter } from 'react-router-dom'
+import { watchSystemTheme } from './theme'
+
+watchSystemTheme()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
