@@ -6,7 +6,7 @@ A web app for marine animal training teams. Track the animals in your facility, 
 
 - **Organizations and roles:** every account belongs to one organization, and each organization only sees its own data. See [Roles](#roles).
 - **Animals:** name, species, sex, birth date (age is calculated and goes up on the birthday), and location. Animals are grouped by location.
-- **Training plans:** a plan has a cue, success criteria, a category, and ordered steps with an estimated number of sessions each.
+- **Training plans:** a plan has a cue, success criteria, a category, and ordered steps with an estimated number of sessions each. Steps can be named, and you can edit a plan, add or delete steps, mark a step complete or reopen it, and delete the plan.
 - **Session log:** log a session against a step with a date, a time, and a note. Sessions on the same day sort by time.
 - **Two views of a plan:** a status table (each step shows Not started, In progress or Complete, with progress and an expandable session log) and a calendar timeline showing when sessions happened.
 - **Profiles:** first and last name, department, bio, and changing your own email and password.
@@ -22,8 +22,11 @@ A web app for marine animal training teams. Track the animals in your facility, 
 | Add, edit, delete animals | | yes | yes |
 | Approve or reject join requests | | yes | yes |
 | Give the curator role, change members' roles | | | yes |
+| Remove a member, or restore one | | | yes |
 
 Signing up with a new organization name creates the organization and makes you its curator. Signing up with an existing name creates a pending request that a supervisor or curator has to approve. An organization always keeps at least one curator.
+
+Removing a member ends their access immediately but keeps everything they created, including the "Created by" name on their plans. A curator can restore them later. An animal that still has training plans can't be deleted until its plans are.
 
 ## Tech stack
 
@@ -108,8 +111,9 @@ Everything except signup and login needs an `Authorization: Bearer <token>` head
 - `POST /auth/signup`, `POST /auth/login`
 - `GET /auth/me`, `PUT /auth/me`, `PUT /auth/me/email`, `PUT /auth/me/password`
 - `GET /team/members`, `GET /team/requests`, `POST /team/requests/{id}/approve`, `DELETE /team/requests/{id}`, `PUT /team/members/{id}/role`
+- `DELETE /team/members/{id}`, `GET /team/removed`, `POST /team/members/{id}/restore`
 - `GET`, `POST`, `PUT`, `DELETE` on `/animals/`
-- `POST /plans/animal/{id}`, `GET /plans/animal/{id}`, and `GET`, `PUT`, `DELETE` on `/plans/{id}`
+- `POST /plans/animal/{id}`, `GET /plans/animal/{id}`, and `GET`, `PUT`, `DELETE` on `/plans/{id}`; `POST /plans/{id}/steps`
 - `PUT`, `DELETE` on `/steps/{id}`; `POST /steps/{id}/complete`; `GET`, `POST` on `/steps/{id}/notes`; `PUT`, `DELETE` on `/steps/notes/{id}`
 
 ## Security notes
