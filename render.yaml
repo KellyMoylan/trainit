@@ -9,6 +9,8 @@ services:
         fromDatabase:
           name: trainit-db
           property: connectionString
+      - key: SECRET_KEY
+        generateValue: true
     plan: free
     autoDeploy: true
     healthCheckPath: /docs

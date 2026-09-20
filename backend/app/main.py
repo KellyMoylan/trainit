@@ -1,10 +1,12 @@
-from .database import Base, engine
-from . import models
-from fastapi import FastAPI
+from .database import Base, engine, run_migrations
+from . import models, crud
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from .routes import auth, plans, animals, plan_steps
+from .routes import auth, plans, animals, plan_steps, team
 
 Base.metadata.create_all(bind=engine)
+run_migrations()
 
 app = FastAPI(title="TrainIt API", description="Animal Training Plan Tracker", version="1.0.0")
 
@@ -20,10 +22,10 @@ app.add_middleware(
         "http://127.0.0.1:3000",
         "http://127.0.0.1:5173",
         "http://127.0.0.1:8080",
+        # Origins never end in a slash; a trailing one would stop these from ever matching
         "https://www.train-it.app",
-        "https://trainit-frontend-szho.onrender.com/",
-        "https://train-it.app/",
-        "null",  # For file:// protocol
+        "https://train-it.app",
+        "https://trainit-frontend-szho.onrender.com",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -34,6 +36,14 @@ app.include_router(auth.router)
 app.include_router(plans.router)
 app.include_router(animals.router)
 app.include_router(plan_steps.router)
+app.include_router(team.router)
+
+@app.exception_handler(crud.PlanEditForbidden)
+def plan_edit_forbidden_handler(request: Request, exc: crud.PlanEditForbidden):
+    return JSONResponse(
+        status_code=403,
+        content={"detail": "Only the plan's creator, a supervisor or a curator can change this plan"},
+    )
 
 @app.get("/")
 def read_root():

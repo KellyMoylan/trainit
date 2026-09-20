@@ -8,7 +8,7 @@ router = APIRouter(prefix="/animals", tags=["animals"])
 @router.post("/", response_model=schemas.AnimalOut)
 def create_animal(
     animal: schemas.AnimalCreate,
-    current_user: schemas.UserOut = Depends(auth_utils.get_current_user),
+    current_user: schemas.UserOut = Depends(auth_utils.require_supervisor),
     db: Session = Depends(database.get_db)
 ):
     """Create a new animal for the current user"""
@@ -18,7 +18,7 @@ def create_animal(
 def list_animals(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100),
-    current_user: schemas.UserOut = Depends(auth_utils.get_current_user),
+    current_user: schemas.UserOut = Depends(auth_utils.get_active_user),
     db: Session = Depends(database.get_db)
 ):
     """Get all animals for the current user"""
@@ -27,7 +27,7 @@ def list_animals(
 @router.get("/{animal_id}", response_model=schemas.AnimalOut)
 def get_animal(
     animal_id: int,
-    current_user: schemas.UserOut = Depends(auth_utils.get_current_user),
+    current_user: schemas.UserOut = Depends(auth_utils.get_active_user),
     db: Session = Depends(database.get_db)
 ):
     """Get a specific animal by ID"""
@@ -40,7 +40,7 @@ def get_animal(
 def update_animal(
     animal_id: int,
     animal_update: schemas.AnimalCreate,
-    current_user: schemas.UserOut = Depends(auth_utils.get_current_user),
+    current_user: schemas.UserOut = Depends(auth_utils.require_supervisor),
     db: Session = Depends(database.get_db)
 ):
     """Update an animal"""
@@ -52,11 +52,15 @@ def update_animal(
 @router.delete("/{animal_id}")
 def delete_animal(
     animal_id: int,
-    current_user: schemas.UserOut = Depends(auth_utils.get_current_user),
+    current_user: schemas.UserOut = Depends(auth_utils.require_supervisor),
     db: Session = Depends(database.get_db)
 ):
     """Delete an animal"""
-    success = crud.delete_animal(db, animal_id, current_user.id)
+    try:
+        success = crud.delete_animal(db, animal_id, current_user.id)
+    except crud.AnimalHasPlans as blocked:
+        plural = "s" if blocked.count != 1 else ""
+        raise HTTPException(status_code=409, detail=f"This animal still has {blocked.count} training plan{plural}. Delete {'them' if blocked.count != 1 else 'it'} first.")
     if not success:
         raise HTTPException(status_code=404, detail="Animal not found")
     return {"message": "Animal deleted successfully"} 
