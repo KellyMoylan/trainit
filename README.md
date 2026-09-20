@@ -1,209 +1,120 @@
-# 🐾 TrainIt - Animal Training Plan Tracker
+# TrainIt
 
-A web application for tracking animal training plans with time estimations and actuals, similar to Gantt charts.
+A web app for marine animal training teams. Track the animals in your facility, write step-by-step training plans, and log each training session as it happens.
 
-## Features
+## What it does
 
-- **User Authentication**: Secure login and signup system with JWT tokens
-- **Animal Management**: Add, edit, and manage animals with detailed profiles
-- **Training Session Logging**: Track training durations and timestamps with optional animal association
-- **Modern UI**: Clean, responsive interface with tabbed navigation
-- **RESTful API**: FastAPI backend with automatic documentation
+- **Organizations and roles:** every account belongs to one organization, and each organization only sees its own data. See [Roles](#roles).
+- **Animals:** name, species, sex, birth date (age is calculated and goes up on the birthday), and location. Animals are grouped by location.
+- **Training plans:** a plan has a cue, success criteria, a category, and ordered steps with an estimated number of sessions each.
+- **Session log:** log a session against a step with a date, a time, and a note. Sessions on the same day sort by time.
+- **Two views of a plan:** a status table (each step shows Not started, In progress or Complete, with progress and an expandable session log) and a calendar timeline showing when sessions happened.
+- **Profiles:** first and last name, department, bio, and changing your own email and password.
+- **Light and dark themes:** the picker is in the sidebar and defaults to your system setting.
 
-## Tech Stack
+## Roles
 
-- **Backend**: FastAPI, SQLAlchemy, SQLite
-- **Authentication**: JWT tokens with bcrypt password hashing
-- **Frontend**: HTML, CSS, JavaScript (vanilla)
-- **Database**: SQLite (can be easily migrated to PostgreSQL/MySQL)
+| | Trainer | Supervisor | Curator |
+|---|:-:|:-:|:-:|
+| View animals and plans | yes | yes | yes |
+| Create plans, add sessions, mark steps complete | yes | yes | yes |
+| Edit or delete a plan and its steps and sessions | own plans only | any plan | any plan |
+| Add, edit, delete animals | | yes | yes |
+| Approve or reject join requests | | yes | yes |
+| Give the curator role, change members' roles | | | yes |
 
-## Setup Instructions
+Signing up with a new organization name creates the organization and makes you its curator. Signing up with an existing name creates a pending request that a supervisor or curator has to approve. An organization always keeps at least one curator.
 
-### Prerequisites
+## Tech stack
 
-- Python 3.8 or higher
-- pip (Python package installer)
+- **Backend:** FastAPI, SQLAlchemy, Pydantic. SQLite locally, PostgreSQL in production.
+- **Auth:** JWT bearer tokens, bcrypt password hashing.
+- **Frontend:** React 19, TypeScript, Vite, React Router. Plain CSS with design tokens; no component library.
+- **Hosting:** Render (see `render.yaml`).
 
-### Installation
+## Running it locally
 
-1. **Clone the repository** (if not already done):
+You need Python 3.12 and Node 20.19 or newer (Node 22 works well).
+
+1. Install dependencies once:
+
    ```bash
-   git clone <repository-url>
-   cd trainit
+   pip install -r backend/requirements.txt
+   cd frontend && npm install
    ```
 
-2. **Create a virtual environment**:
-   ```bash
-   python -m venv .venv
-   ```
+2. Start the backend from the repository root. Using a separate database file keeps your test data out of the tracked files:
 
-3. **Activate the virtual environment**:
-   - Windows:
-     ```bash
-     .venv\Scripts\activate
-     ```
-   - macOS/Linux:
-     ```bash
-     source .venv/bin/activate
-     ```
-
-4. **Install dependencies**:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-### Running the Application
-
-1. **Start the backend server** (in one terminal):
-   ```bash
+   ```powershell
+   $env:DATABASE_URL = "sqlite:///./local.db"
    python run_backend.py
    ```
-   The API will be available at `http://localhost:8000`
 
-2. **Start the frontend server** (in another terminal):
-   ```bash
-   python serve_frontend.py
-   ```
-   This will automatically open your browser to `http://localhost:3000`
+   The API is at http://localhost:8000 and interactive docs at http://localhost:8000/docs.
 
-   **Alternative**: If you prefer to serve the frontend manually:
+3. Start the frontend in a second terminal:
+
    ```bash
    cd frontend
-   python -m http.server 3000
+   npm run dev
    ```
-   Then visit `http://localhost:3000`
 
-3. **API Documentation**:
-   - Interactive API docs: `http://localhost:8000/docs`
-   - Alternative docs: `http://localhost:8000/redoc`
+   Open http://localhost:5173. In development the frontend talks to http://localhost:8000 automatically.
 
-## Usage
+On Windows, `start_app.bat` does steps 2 and 3 for you.
 
-### First Time Setup
+The first account you create becomes a curator. To try the approval flow, sign up again from a private window using the same organization name.
 
-1. Open the application in your browser
-2. Click "Don't have an account? Sign up"
-3. Create a new account with your email and password
-4. Login with your credentials
+## Configuration
 
-### Logging Training Sessions
+| Variable | Where | Purpose |
+|---|---|---|
+| `SECRET_KEY` | backend | Signs login tokens. **Required whenever the database is not local SQLite**; the app refuses to start without it. Locally, a clearly labeled development key is used. |
+| `DATABASE_URL` | backend | Database connection. Defaults to `sqlite:///./app.db`. |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | backend | How long a login lasts. Defaults to 480 (8 hours). |
+| `VITE_API_URL` | frontend build | Base URL of the API. Set by `render.yaml` and `frontend/.env.production` for deployed builds. |
 
-1. After logging in, you'll see the dashboard
-2. Enter the duration of your training session in minutes
-3. Click "Log Training Session"
-4. Your session will be saved with a timestamp
+## Deploying to Render
 
-## API Endpoints
+`render.yaml` defines the backend web service, the PostgreSQL database, and the frontend static site. Render generates `SECRET_KEY` for you the first time.
 
-### Authentication
-- `POST /auth/signup` - Create a new user account
-- `POST /auth/login` - Login and get JWT token
-- `GET /auth/me` - Get current user info (requires authentication)
+Tables and new columns are created automatically when the backend starts, through `run_migrations()` in `backend/app/database.py`. There is no separate migration tool, so back up the database before deploying a version that changes the schema.
 
-### Training Plans
-- `GET /plans/` - List training plans (placeholder)
-- `POST /plans/log` - Log a training session (requires authentication)
-- `GET /plans/stats` - Get user training statistics (requires authentication)
-- `GET /plans/logs` - Get recent training logs (requires authentication)
+## Project layout
 
-### Animals
-- `POST /animals/` - Create a new animal (requires authentication)
-- `GET /animals/` - List all user's animals (requires authentication)
-- `GET /animals/{id}` - Get specific animal details (requires authentication)
-- `PUT /animals/{id}` - Update animal information (requires authentication)
-- `DELETE /animals/{id}` - Delete an animal (requires authentication)
-
-## Database Schema
-
-### Users Table
-- `id` (Primary Key)
-- `email` (Unique)
-- `hashed_password`
-
-### Animals Table
-- `id` (Primary Key)
-- `name` (String - required)
-- `species` (String - required)
-- `sex` (String - Male/Female/Unknown)
-- `age` (Integer - years, optional)
-- `location` (String - optional)
-- `owner_id` (Foreign Key to Users)
-
-### TimeLogs Table
-- `id` (Primary Key)
-- `duration` (Float - minutes)
-- `timestamp` (DateTime)
-- `notes` (String - optional)
-- `user_id` (Foreign Key to Users)
-- `animal_id` (Foreign Key to Animals - optional)
-
-## Development
-
-### Project Structure
 ```
-trainit/
-├── backend/
-│   └── app/
-│       ├── routes/
-│       │   ├── auth.py
-│       │   └── plans.py
-│       ├── main.py
-│       ├── models.py
-│       ├── schemas.py
-│       ├── crud.py
-│       ├── database.py
-│       └── auth_utils.py
-├── frontend/
-│   └── index.html
-├── requirements.txt
-├── run_backend.py
-└── README.md
+backend/app/
+  main.py         app setup, CORS, routers
+  models.py       database tables and role constants
+  schemas.py      request and response shapes, input validation
+  crud.py         all database operations and permission checks
+  auth_utils.py   tokens and the login and role dependencies
+  database.py     connection and startup migrations
+  routes/         auth, animals, plans, plan_steps, team
+frontend/src/
+  App.tsx         pages and components
+  App.css         component styles
+  index.css       colors, spacing and other design tokens (light and dark)
+  theme.ts        light / dark / system preference
+run_backend.py    starts the backend with auto-reload
+start_app.bat     starts backend and frontend together on Windows
+render.yaml       Render deployment
 ```
 
-### Adding New Features
+## API overview
 
-1. **Database Models**: Add new models in `backend/app/models.py`
-2. **API Schemas**: Define request/response schemas in `backend/app/schemas.py`
-3. **CRUD Operations**: Add database operations in `backend/app/crud.py`
-4. **API Routes**: Create new route files in `backend/app/routes/`
-5. **Frontend**: Update `frontend/index.html` for new UI features
+Everything except signup and login needs an `Authorization: Bearer <token>` header. Interactive documentation is at `/docs` on a running backend.
 
-## Security Notes
+- `POST /auth/signup`, `POST /auth/login`
+- `GET /auth/me`, `PUT /auth/me`, `PUT /auth/me/email`, `PUT /auth/me/password`
+- `GET /team/members`, `GET /team/requests`, `POST /team/requests/{id}/approve`, `DELETE /team/requests/{id}`, `PUT /team/members/{id}/role`
+- `GET`, `POST`, `PUT`, `DELETE` on `/animals/`
+- `POST /plans/animal/{id}`, `GET /plans/animal/{id}`, and `GET`, `PUT`, `DELETE` on `/plans/{id}`
+- `PUT`, `DELETE` on `/steps/{id}`; `POST /steps/{id}/complete`; `GET`, `POST` on `/steps/{id}/notes`; `PUT`, `DELETE` on `/steps/notes/{id}`
 
-- The JWT secret key should be changed in production
-- Passwords are hashed using bcrypt
-- CORS is configured for development (localhost)
-- Consider using environment variables for sensitive configuration
+## Security notes
 
-## Troubleshooting
-
-### CORS Errors
-If you see "Cross-Origin Request Blocked" errors:
-1. Make sure the backend server is running (`python run_backend.py`)
-2. Use the frontend server (`python serve_frontend.py`) instead of opening the HTML file directly
-3. Check that both servers are running on the correct ports (backend: 8000, frontend: 3000)
-
-### Module Import Errors
-If you see "ModuleNotFoundError: No module named 'app'":
-1. Make sure you're running `python run_backend.py` from the project root directory
-2. Check that all dependencies are installed: `pip install -r requirements.txt`
-3. Verify the virtual environment is activated
-
-### Database Issues
-If the database seems to reset or lose data:
-- The SQLite database file is located at `backend/app.db`
-- Make sure the backend directory has write permissions
-
-## Future Enhancements
-
-- Training plan creation and management
-- Gantt chart visualization
-- Progress tracking and analytics
-- Multiple animal support
-- Training goal setting
-- Export functionality
-- Mobile app support
-
-## License
-
-This project is open source and available under the MIT License.
+- Passwords must be 8 to 72 bytes. Emails and organization names are matched without regard to case.
+- Changing your password logs out every other device.
+- Changing an animal, plan, step or session outside your organization returns a 404, and plan edits by someone who is not the creator (or a supervisor or curator) return a 403.
+- CORS only allows the deployed frontend origins and localhost. Update `allow_origins` in `backend/app/main.py` if you add a domain.

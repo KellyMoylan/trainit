@@ -1,20 +1,20 @@
 @echo off
-echo Starting TrainIt Application...
+echo Starting TrainIt for local development...
 echo.
 
-echo Starting Backend Server...
-start "TrainIt Backend" cmd /k "python run_backend.py"
+echo Starting backend (database file: local.db)...
+start "TrainIt Backend" cmd /k "set DATABASE_URL=sqlite:///./local.db&& python run_backend.py"
 
-echo Waiting 3 seconds for backend to start...
-timeout /t 3 /nobreak > nul
-
-echo Starting Frontend Server...
-start "TrainIt Frontend" cmd /k "python serve_frontend.py"
+echo Starting frontend...
+start "TrainIt Frontend" cmd /k "cd frontend && npm run dev"
 
 echo.
-echo Both servers are starting...
-echo Backend: http://localhost:8000
-echo Frontend: http://localhost:3000
+echo Backend:  http://localhost:8000  (API docs at /docs)
+echo Frontend: http://localhost:5173
 echo.
-echo Press any key to exit this launcher...
-pause > nul 
+echo First time? Run these once first:
+echo   pip install -r backend/requirements.txt
+echo   cd frontend ^&^& npm install
+echo.
+echo Press any key to close this launcher (the two servers keep running)...
+pause > nul
