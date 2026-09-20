@@ -67,6 +67,17 @@ button.ghost:hover:not(:disabled) {
   color: var(--text);
 }
 
+button.danger-outline {
+  color: var(--danger-text);
+  border-color: var(--danger-border);
+}
+
+button.danger-outline:hover:not(:disabled) {
+  color: var(--danger-text);
+  background: var(--danger-soft);
+  border-color: var(--danger-border);
+}
+
 button.small {
   padding: 5px 12px;
   font-size: 0.875rem;
@@ -319,6 +330,13 @@ td select {
   background: var(--surface-muted);
   border: 1px solid var(--border);
   border-radius: 999px;
+}
+
+.badge.you {
+  margin-left: 8px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: transparent;
 }
 
 /* ---------- App shell ---------- */
@@ -986,6 +1004,76 @@ td select {
   gap: 12px;
   max-width: 480px;
   margin-bottom: 4px;
+}
+
+.panel-form.wide {
+  max-width: 640px;
+}
+
+.push-right {
+  margin-left: auto;
+}
+
+.confirm {
+  padding: 12px 14px;
+  background: var(--danger-soft);
+  border: 1px solid var(--danger-border);
+  border-radius: var(--radius);
+}
+
+.confirm p {
+  margin-bottom: 10px;
+  font-size: 0.9rem;
+  color: var(--danger-text);
+}
+
+.plan-info {
+  padding: 16px 18px;
+  margin-bottom: 20px;
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+.plan-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 14px 24px;
+  margin: 0;
+}
+
+.plan-facts:empty {
+  display: none;
+}
+
+.plan-facts .wide {
+  grid-column: 1 / -1;
+}
+
+.plan-facts dt {
+  margin-bottom: 2px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.plan-facts dd {
+  margin: 0;
+  white-space: pre-line;
+}
+
+.plan-facts + .row,
+.plan-facts + .error,
+.plan-facts + .confirm {
+  margin-top: 14px;
+}
+
+.step-add {
+  padding: 18px;
+  margin-top: 16px;
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
 }
 
 /* ---------- Timeline ---------- */

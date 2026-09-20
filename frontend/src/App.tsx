@@ -17,7 +17,7 @@ interface User {
   department: string | null
   bio: string | null
   role: Role
-  status: 'active' | 'pending'
+  status: 'active' | 'pending' | 'removed'
   organization: { id: number; name: string }
 }
 
@@ -662,6 +662,7 @@ function AnimalManagementPage({ token, canEdit, onLogout }: { token: string; can
   const [submitting, setSubmitting] = useState(false)
   const [sortField, setSortField] = useState<string>('name')
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
+  const [deletingId, setDeletingId] = useState<number | null>(null)
 
   const handleApiResponse = useApiResponse(onLogout)
 
@@ -734,6 +735,30 @@ function AnimalManagementPage({ token, canEdit, onLogout }: { token: string; can
       birth_date: animal.birth_date ?? '',
       location: animal.location ?? '',
     })
+  }
+
+  const deleteAnimal = async (animal: AnimalListRow) => {
+    setError(null)
+    try {
+      const response = await fetch(`${apiUrl}/animals/${animal.id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` },
+      })
+      if (response.status === 401) {
+        onLogout()
+        return
+      }
+      if (!response.ok) {
+        // An animal that still has plans is refused with a message saying so
+        setError(apiErrorMessage(await response.json().catch(() => null), 'Failed to delete animal'))
+      } else {
+        setAnimals(previous => previous.filter(a => a.id !== animal.id))
+        if (editingId === animal.id) setEditingId(null)
+      }
+    } catch {
+      setError('Failed to delete animal')
+    }
+    setDeletingId(null)
   }
 
   const handleEditSubmit = (e: React.FormEvent) => {
@@ -847,7 +872,22 @@ function AnimalManagementPage({ token, canEdit, onLogout }: { token: string; can
                       <td>{animal.species}</td>
                       <td>{animal.sex}</td>
                       <td>{animal.age === null || animal.age === undefined ? '' : animal.age < 1 ? '<1' : animal.age}</td>
-                      {canEdit && <td><button className="small" onClick={() => startEdit(animal)}>Edit</button></td>}
+                      {canEdit && (
+                        <td>
+                          {deletingId === animal.id ? (
+                            <div className="row">
+                              <span className="muted">Delete {animal.name}?</span>
+                              <button className="danger small" onClick={() => deleteAnimal(animal)}>Delete</button>
+                              <button className="small" onClick={() => setDeletingId(null)}>Cancel</button>
+                            </div>
+                          ) : (
+                            <div className="row">
+                              <button className="small" onClick={() => startEdit(animal)}>Edit</button>
+                              <button className="small danger-outline" onClick={() => { setError(null); setDeletingId(animal.id) }}>Delete</button>
+                            </div>
+                          )}
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </React.Fragment>
@@ -874,7 +914,7 @@ function TrainingPlanPage({ token, onLogout }: { token: string; onLogout: () => 
     started_date: '',
   })
   const [steps, setSteps] = useState([
-    { id: 1, description: '', estimated_sessions: 5 }
+    { id: 1, name: '', description: '', estimated_sessions: 5 }
   ])
 
   const handleApiResponse = useApiResponse(onLogout)
@@ -913,7 +953,11 @@ function TrainingPlanPage({ token, onLogout }: { token: string; onLogout: () => 
 
   const addStep = () => {
     const newId = Math.max(...steps.map(s => s.id)) + 1
-    setSteps([...steps, { id: newId, description: '', estimated_sessions: 5 }])
+    setSteps([...steps, { id: newId, name: '', description: '', estimated_sessions: 5 }])
+  }
+
+  const removeStep = (stepId: number) => {
+    setSteps(steps.filter(step => step.id !== stepId))
   }
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -929,7 +973,7 @@ function TrainingPlanPage({ token, onLogout }: { token: string; onLogout: () => 
       category: form.category,
       started_date: form.started_date || null,
       steps: steps.map((step, index) => ({
-        name: `Step ${index + 1}`,
+        name: step.name.trim() || `Step ${index + 1}`,
         description: step.description,
         order: index + 1,
         estimated_sessions: step.estimated_sessions,
@@ -949,7 +993,7 @@ function TrainingPlanPage({ token, onLogout }: { token: string; onLogout: () => 
       .then(data => {
         if (data !== null) {
           setForm({ animal_id: '', name: '', cue_description: '', criteria: '', category: '', started_date: '' })
-          setSteps([{ id: 1, description: '', estimated_sessions: 5 }])
+          setSteps([{ id: 1, name: '', description: '', estimated_sessions: 5 }])
           alert('Training plan created successfully!')
         }
         setSubmitting(false)
@@ -991,12 +1035,7 @@ function TrainingPlanPage({ token, onLogout }: { token: string; onLogout: () => 
               <Field label="Category" htmlFor="plan-category">
                 <select id="plan-category" name="category" value={form.category} onChange={handleChange} required>
                   <option value="" disabled>Select category</option>
-                  <option value="Husbandry">Husbandry</option>
-                  <option value="Aerial">Aerial</option>
-                  <option value="Conceptual">Conceptual</option>
-                  <option value="Stationary">Stationary</option>
-                  <option value="Vocal">Vocal</option>
-                  <option value="Interaction">Interaction</option>
+                  {PLAN_CATEGORIES.map(category => <option key={category} value={category}>{category}</option>)}
                 </select>
               </Field>
               <Field label="Start date" htmlFor="plan-started">
@@ -1032,26 +1071,42 @@ function TrainingPlanPage({ token, onLogout }: { token: string; onLogout: () => 
             {steps.map((step, index) => (
               <div className="step-card" key={step.id}>
                 <span className="step-number">{index + 1}</span>
-                <Field label="Description" htmlFor={`step-description-${step.id}`}>
-                  <textarea
-                    id={`step-description-${step.id}`}
-                    placeholder="Describe this training step"
-                    value={step.description}
-                    onChange={(e) => handleStepChange(step.id, 'description', e.target.value)}
-                    required
-                  />
-                </Field>
-                <Field label="Estimated sessions" htmlFor={`step-sessions-${step.id}`}>
-                  <select
-                    id={`step-sessions-${step.id}`}
-                    value={step.estimated_sessions}
-                    onChange={(e) => handleStepChange(step.id, 'estimated_sessions', parseInt(e.target.value))}
-                  >
-                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 20].map(num => (
-                      <option key={num} value={num}>{num} session{num !== 1 ? 's' : ''}</option>
-                    ))}
-                  </select>
-                </Field>
+                <div className="stack">
+                  <Field label="Step name (optional)" htmlFor={`step-name-${step.id}`}>
+                    <input
+                      id={`step-name-${step.id}`}
+                      placeholder={`Step ${index + 1}`}
+                      value={step.name}
+                      onChange={(e) => handleStepChange(step.id, 'name', e.target.value)}
+                      maxLength={100}
+                    />
+                  </Field>
+                  <Field label="Description" htmlFor={`step-description-${step.id}`}>
+                    <textarea
+                      id={`step-description-${step.id}`}
+                      placeholder="Describe this training step"
+                      value={step.description}
+                      onChange={(e) => handleStepChange(step.id, 'description', e.target.value)}
+                      required
+                    />
+                  </Field>
+                </div>
+                <div className="stack">
+                  <Field label="Estimated sessions" htmlFor={`step-sessions-${step.id}`}>
+                    <select
+                      id={`step-sessions-${step.id}`}
+                      value={step.estimated_sessions}
+                      onChange={(e) => handleStepChange(step.id, 'estimated_sessions', parseInt(e.target.value))}
+                    >
+                      {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 20].map(num => (
+                        <option key={num} value={num}>{num} session{num !== 1 ? 's' : ''}</option>
+                      ))}
+                    </select>
+                  </Field>
+                  {steps.length > 1 && (
+                    <button type="button" className="ghost small" onClick={() => removeStep(step.id)}>Remove step</button>
+                  )}
+                </div>
               </div>
             ))}
             <button type="button" className="mt" onClick={addStep}>+ Add step</button>
@@ -1113,9 +1168,16 @@ interface SessionNote {
 interface PlanSummary {
   id: number
   name: string
+  animal_id: number
+  category: string | null
+  cue_description: string | null
+  criteria: string | null
+  started_date: string | null
   created_by_id: number | null
   created_by_name: string | null
 }
+
+const PLAN_CATEGORIES = ['Husbandry', 'Aerial', 'Conceptual', 'Stationary', 'Vocal', 'Interaction']
 
 interface AnimalRow {
   id: number
@@ -1362,7 +1424,7 @@ function PlanTimeline({ steps, notesByStepId, activeDotKey, onActiveDotChange, o
   )
 }
 
-function PlanDetail({ token, plan, steps, notesByStepId, stepsLoading, canEdit, onStepsChange, onNotesChange, onLogout }: {
+function PlanDetail({ token, plan, steps, notesByStepId, stepsLoading, canEdit, onStepsChange, onNotesChange, onPlanChange, onPlanDeleted, onLogout }: {
   token: string
   plan: PlanSummary
   steps: PlanStep[]
@@ -1371,11 +1433,19 @@ function PlanDetail({ token, plan, steps, notesByStepId, stepsLoading, canEdit, 
   canEdit: boolean
   onStepsChange: (update: (previous: PlanStep[]) => PlanStep[]) => void
   onNotesChange: (stepId: number, notes: SessionNote[]) => void
+  onPlanChange: (plan: PlanSummary) => void
+  onPlanDeleted: () => void
   onLogout: () => void
 }) {
   const [view, setView] = useState<'list' | 'timeline'>('list')
   const [expandedStepId, setExpandedStepId] = useState<number | null>(null)
-  const [stepMode, setStepMode] = useState<'view' | 'edit' | 'add'>('view')
+  const [stepMode, setStepMode] = useState<'view' | 'edit' | 'add' | 'delete'>('view')
+  const [planMode, setPlanMode] = useState<'view' | 'edit' | 'delete'>('view')
+  const [planForm, setPlanForm] = useState({ name: '', category: '', started_date: '', cue_description: '', criteria: '' })
+  const [planError, setPlanError] = useState<string | null>(null)
+  const [addingStep, setAddingStep] = useState(false)
+  const [newStep, setNewStep] = useState({ name: '', description: '', estimated_sessions: '5' })
+  const [stepAddError, setStepAddError] = useState<string | null>(null)
   const [stepForm, setStepForm] = useState({ name: '', description: '', estimated_sessions: '' })
   const [sessionForm, setSessionForm] = useState({ note: '', performed_date: '', performed_time: '', markComplete: false })
   const [editingNoteId, setEditingNoteId] = useState<number | null>(null)
@@ -1409,18 +1479,92 @@ function PlanDetail({ token, plan, steps, notesByStepId, stepsLoading, canEdit, 
     onNotesChange(stepId, await response.json())
   }
 
-  const run = async (e: React.FormEvent, failure: string, action: () => Promise<void>) => {
-    e.preventDefault()
+  // Runs a form action: shows `failure` in the area that owns the form (the step panel by default) if it goes wrong
+  const run = async (
+    e: React.FormEvent | null,
+    failure: string,
+    action: () => Promise<void>,
+    report: (message: string | null) => void = setFormError,
+  ) => {
+    e?.preventDefault()
     setBusy(true)
-    setFormError(null)
+    report(null)
     try {
       await action()
     } catch {
-      setFormError(failure)
+      report(failure)
     } finally {
       setBusy(false)
     }
   }
+
+  const startEditPlan = () => {
+    setPlanError(null)
+    setPlanForm({
+      name: plan.name,
+      category: plan.category ?? '',
+      started_date: plan.started_date ?? '',
+      cue_description: plan.cue_description ?? '',
+      criteria: plan.criteria ?? '',
+    })
+    setPlanMode('edit')
+  }
+
+  const savePlan = (e: React.FormEvent) => run(e, 'Failed to save the plan.', async () => {
+    const response = await request(`/plans/${plan.id}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        name: planForm.name,
+        category: planForm.category || null,
+        started_date: planForm.started_date || null,
+        cue_description: planForm.cue_description,
+        criteria: planForm.criteria,
+      }),
+    })
+    onPlanChange(await response.json())
+    setPlanMode('view')
+  }, setPlanError)
+
+  const deletePlan = () => run(null, 'Failed to delete the plan.', async () => {
+    await request(`/plans/${plan.id}`, { method: 'DELETE' })
+    onPlanDeleted()
+  }, setPlanError)
+
+  const startAddStep = () => {
+    setStepAddError(null)
+    setNewStep({ name: '', description: '', estimated_sessions: '5' })
+    setAddingStep(true)
+  }
+
+  const saveNewStep = (e: React.FormEvent) => run(e, 'Failed to add the step.', async () => {
+    const response = await request(`/plans/${plan.id}/steps`, {
+      method: 'POST',
+      body: JSON.stringify({
+        name: newStep.name.trim() || null,
+        description: newStep.description,
+        estimated_sessions: Number(newStep.estimated_sessions),
+      }),
+    })
+    const created: PlanStep = await response.json()
+    onStepsChange(previous => [...previous, created])
+    setAddingStep(false)
+    setView('list')
+    setExpandedStepId(created.id)
+    setStepMode('view')
+  }, setStepAddError)
+
+  const removeStep = (step: PlanStep) => run(null, 'Failed to delete the step.', async () => {
+    await request(`/steps/${step.id}`, { method: 'DELETE' })
+    onStepsChange(previous => previous.filter(s => s.id !== step.id))
+    setExpandedStepId(null)
+    setStepMode('view')
+  })
+
+  const setStepComplete = (step: PlanStep, complete: boolean) => run(null, complete ? 'Failed to mark the step complete.' : 'Failed to reopen the step.', async () => {
+    const response = await request(`/steps/${step.id}`, { method: 'PUT', body: JSON.stringify({ is_complete: complete }) })
+    const updated = await response.json()
+    onStepsChange(previous => previous.map(s => (s.id === step.id ? { ...s, ...updated } : s)))
+  })
 
   const toggleStep = (stepId: number) => {
     setExpandedStepId(previous => (previous === stepId ? null : stepId))
@@ -1517,6 +1661,69 @@ function PlanDetail({ token, plan, steps, notesByStepId, stepsLoading, canEdit, 
         </div>
       </div>
 
+      {(plan.category || plan.started_date || plan.cue_description || plan.criteria || canEdit) && (
+        <div className="plan-info">
+          {planMode === 'edit' ? (
+            <form className="panel-form wide" onSubmit={savePlan}>
+              <div className="form-grid">
+                <label className="field">
+                  <span className="field-label">Plan name</span>
+                  <input type="text" value={planForm.name} onChange={e => setPlanForm(f => ({ ...f, name: e.target.value }))} required />
+                </label>
+                <label className="field">
+                  <span className="field-label">Category</span>
+                  <select value={planForm.category} onChange={e => setPlanForm(f => ({ ...f, category: e.target.value }))}>
+                    <option value="">None</option>
+                    {PLAN_CATEGORIES.map(category => <option key={category} value={category}>{category}</option>)}
+                  </select>
+                </label>
+                <label className="field">
+                  <span className="field-label">Start date</span>
+                  <input type="date" value={planForm.started_date} onChange={e => setPlanForm(f => ({ ...f, started_date: e.target.value }))} />
+                </label>
+              </div>
+              <label className="field">
+                <span className="field-label">Cue</span>
+                <textarea rows={3} value={planForm.cue_description} onChange={e => setPlanForm(f => ({ ...f, cue_description: e.target.value }))} />
+              </label>
+              <label className="field">
+                <span className="field-label">Success criteria</span>
+                <textarea rows={3} value={planForm.criteria} onChange={e => setPlanForm(f => ({ ...f, criteria: e.target.value }))} />
+              </label>
+              {planError && <div className="error">{planError}</div>}
+              <div className="row">
+                <button type="submit" className="primary small" disabled={busy}>{busy ? 'Saving...' : 'Save plan'}</button>
+                <button type="button" className="small" onClick={() => { setPlanMode('view'); setPlanError(null) }}>Cancel</button>
+              </div>
+            </form>
+          ) : (
+            <>
+              <dl className="plan-facts">
+                {plan.category && <div><dt>Category</dt><dd><span className="badge">{plan.category}</span></dd></div>}
+                {plan.started_date && <div><dt>Started</dt><dd>{formatNoteDate({ performed_date: plan.started_date, timestamp: '' })}</dd></div>}
+                {plan.cue_description && <div className="wide"><dt>Cue</dt><dd>{plan.cue_description}</dd></div>}
+                {plan.criteria && <div className="wide"><dt>Success criteria</dt><dd>{plan.criteria}</dd></div>}
+              </dl>
+              {planError && <div className="error">{planError}</div>}
+              {canEdit && planMode === 'delete' ? (
+                <div className="confirm">
+                  <p>Delete this plan with its {steps.length} step{steps.length !== 1 ? 's' : ''} and every logged session? This can't be undone.</p>
+                  <div className="row">
+                    <button className="danger small" disabled={busy} onClick={deletePlan}>{busy ? 'Deleting...' : 'Delete plan'}</button>
+                    <button className="small" onClick={() => { setPlanMode('view'); setPlanError(null) }}>Cancel</button>
+                  </div>
+                </div>
+              ) : canEdit && (
+                <div className="row">
+                  <button className="small" onClick={startEditPlan}>Edit plan</button>
+                  <button className="small danger-outline" onClick={() => { setPlanError(null); setPlanMode('delete') }}>Delete plan</button>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
       {stepsLoading ? (
         <div className="empty">Loading steps...</div>
       ) : steps.length === 0 ? (
@@ -1611,6 +1818,14 @@ function PlanDetail({ token, plan, steps, notesByStepId, stepsLoading, canEdit, 
                           <button type="button" className="small" onClick={() => { setStepMode('view'); setFormError(null) }}>Cancel</button>
                         </div>
                       </form>
+                    ) : stepMode === 'delete' ? (
+                      <div className="confirm">
+                        <p>Delete this step{notes.length > 0 ? ` and its ${notes.length} logged session${notes.length !== 1 ? 's' : ''}` : ''}? This can't be undone.</p>
+                        <div className="row">
+                          <button className="danger small" disabled={busy} onClick={() => removeStep(step)}>{busy ? 'Deleting...' : 'Delete step'}</button>
+                          <button className="small" onClick={() => { setStepMode('view'); setFormError(null) }}>Cancel</button>
+                        </div>
+                      </div>
                     ) : (
                       <>
                         {notes.length === 0 ? (
@@ -1660,6 +1875,10 @@ function PlanDetail({ token, plan, steps, notesByStepId, stepsLoading, canEdit, 
                           <div className="row">
                             <button className="primary small" onClick={startAddSession}>Add session</button>
                             <button className="small" onClick={() => startEditStep(step)}>Edit step</button>
+                            <button className="small" disabled={busy} onClick={() => setStepComplete(step, !step.is_complete)}>
+                              {step.is_complete ? 'Reopen step' : 'Mark complete'}
+                            </button>
+                            <button className="small danger-outline push-right" onClick={() => { setFormError(null); setStepMode('delete') }}>Delete step</button>
                           </div>
                         )}
                       </>
@@ -1670,6 +1889,39 @@ function PlanDetail({ token, plan, steps, notesByStepId, stepsLoading, canEdit, 
             )
           })}
         </div>
+      )}
+
+      {canEdit && !stepsLoading && (
+        addingStep ? (
+          <form className="step-add" onSubmit={saveNewStep}>
+            <h3 className="card-title">Add a step</h3>
+            <div className="panel-form wide">
+              <label className="field">
+                <span className="field-label">Step name (optional)</span>
+                <input type="text" placeholder={`Step ${steps.length + 1}`} maxLength={100} value={newStep.name} onChange={e => setNewStep(f => ({ ...f, name: e.target.value }))} />
+              </label>
+              <label className="field">
+                <span className="field-label">Description</span>
+                <textarea rows={3} placeholder="Describe this training step" value={newStep.description} onChange={e => setNewStep(f => ({ ...f, description: e.target.value }))} required />
+              </label>
+              <label className="field">
+                <span className="field-label">Estimated sessions</span>
+                <select value={newStep.estimated_sessions} onChange={e => setNewStep(f => ({ ...f, estimated_sessions: e.target.value }))}>
+                  {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 20].map(num => (
+                    <option key={num} value={num}>{num} session{num !== 1 ? 's' : ''}</option>
+                  ))}
+                </select>
+              </label>
+              {stepAddError && <div className="error">{stepAddError}</div>}
+              <div className="row">
+                <button type="submit" className="primary small" disabled={busy}>{busy ? 'Adding...' : 'Add step'}</button>
+                <button type="button" className="small" onClick={() => { setAddingStep(false); setStepAddError(null) }}>Cancel</button>
+              </div>
+            </div>
+          </form>
+        ) : (
+          <button className="mt" onClick={startAddStep}>+ Add step</button>
+        )
       )}
     </section>
   )
@@ -1767,6 +2019,23 @@ function TrainingPlansListPage({ token, user, onLogout }: { token: string; user:
     fetchSteps(plan.id)
   }
 
+  // After editing a plan, refresh both the open plan and its entry in the animal's list of plans
+  const handlePlanChange = (updated: PlanSummary) => {
+    setSelectedPlan(updated)
+    setPlansByAnimal(prev => ({
+      ...prev,
+      [updated.animal_id]: (prev[updated.animal_id] ?? []).map(p => (p.id === updated.id ? updated : p)),
+    }))
+  }
+
+  const handlePlanDeleted = () => {
+    if (!selectedPlan) return
+    const { id, animal_id } = selectedPlan
+    setPlansByAnimal(prev => ({ ...prev, [animal_id]: (prev[animal_id] ?? []).filter(p => p.id !== id) }))
+    setSelectedPlan(null)
+    setSteps([])
+  }
+
   return (
     <div className="page">
       <PageHeader title="Training plans" subtitle="Pick an animal, then a plan, to see its steps and log sessions." />
@@ -1823,6 +2092,8 @@ function TrainingPlansListPage({ token, user, onLogout }: { token: string; user:
           canEdit={selectedPlan.created_by_id === user.id || canManageTeam(user)}
           onStepsChange={setSteps}
           onNotesChange={(stepId, notes) => setNotesByStepId(prev => ({ ...prev, [stepId]: notes }))}
+          onPlanChange={handlePlanChange}
+          onPlanDeleted={handlePlanDeleted}
           onLogout={onLogout}
         />
       )}
@@ -1842,6 +2113,8 @@ interface Member {
 function TeamPage({ token, user, onLogout }: { token: string; user: User; onLogout: () => void }) {
   const [requests, setRequests] = useState<Member[]>([])
   const [members, setMembers] = useState<Member[]>([])
+  const [removedMembers, setRemovedMembers] = useState<Member[]>([])
+  const [removingId, setRemovingId] = useState<number | null>(null)
   const [requestRoles, setRequestRoles] = useState<{ [userId: number]: Role }>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -1866,17 +2139,22 @@ function TeamPage({ token, user, onLogout }: { token: string; user: User; onLogo
 
   const load = useCallback(async () => {
     try {
-      const [pending, active] = await Promise.all([authFetch('/team/requests'), authFetch('/team/members')])
-      if (pending !== null && active !== null) {
+      const [pending, active, removed] = await Promise.all([
+        authFetch('/team/requests'),
+        authFetch('/team/members'),
+        isCurator ? authFetch('/team/removed') : Promise.resolve([]),
+      ])
+      if (pending !== null && active !== null && removed !== null) {
         setRequests(pending)
         setMembers(active)
+        setRemovedMembers(removed)
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load team')
     } finally {
       setLoading(false)
     }
-  }, [authFetch])
+  }, [authFetch, isCurator])
 
   useEffect(() => {
     load()
@@ -1884,6 +2162,7 @@ function TeamPage({ token, user, onLogout }: { token: string; user: User; onLogo
 
   const act = async (path: string, options: RequestInit) => {
     setError(null)
+    setRemovingId(null)
     try {
       await authFetch(path, options)
       await load()
@@ -1947,12 +2226,12 @@ function TeamPage({ token, user, onLogout }: { token: string; user: User; onLogo
           <div className="table-wrap">
             <table>
               <thead>
-                <tr><th>Member</th><th>Role</th></tr>
+                <tr><th>Member</th><th>Role</th>{isCurator && <th></th>}</tr>
               </thead>
               <tbody>
                 {members.map(member => (
                   <tr key={member.id}>
-                    <td>{nameWithEmail(member)}</td>
+                    <td>{nameWithEmail(member)}{member.id === user.id && <span className="badge you">You</span>}</td>
                     <td>
                       {isCurator ? (
                         <select
@@ -1966,11 +2245,48 @@ function TeamPage({ token, user, onLogout }: { token: string; user: User; onLogo
                         </select>
                       ) : <span className="badge capitalize">{member.role}</span>}
                     </td>
+                    {isCurator && (
+                      <td>
+                        {member.id === user.id ? null : removingId === member.id ? (
+                          <div className="row">
+                            <span className="muted">Remove {member.first_name || member.email}?</span>
+                            <button className="danger small" onClick={() => act(`/team/members/${member.id}`, { method: 'DELETE' })}>Remove</button>
+                            <button className="small" onClick={() => setRemovingId(null)}>Cancel</button>
+                          </div>
+                        ) : (
+                          <button className="small danger-outline" onClick={() => setRemovingId(member.id)}>Remove</button>
+                        )}
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+          {isCurator && <p className="hint mt">Removing someone ends their access right away. Everything they created stays, and you can restore them later.</p>}
+
+          {isCurator && removedMembers.length > 0 && (
+            <>
+              <h2 className="section-title">Removed members ({removedMembers.length})</h2>
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr><th>Person</th><th></th></tr>
+                  </thead>
+                  <tbody>
+                    {removedMembers.map(member => (
+                      <tr key={member.id}>
+                        <td>{nameWithEmail(member)}</td>
+                        <td>
+                          <button className="small" onClick={() => act(`/team/members/${member.id}/restore`, { method: 'POST' })}>Restore access</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
         </>
       )}
     </div>
@@ -2050,6 +2366,21 @@ function App() {
 
   if (user.status === 'pending') {
     return <PendingApprovalPage user={user} onRefresh={loadUser} onLogout={handleLogout} />
+  }
+
+  if (user.status === 'removed') {
+    return (
+      <AuthLayout title="Access removed">
+        <p className="muted">
+          A curator removed your access to <strong>{user.organization.name}</strong>. Everything you created there has been kept.
+          If this is a mistake, ask a curator to restore your access.
+        </p>
+        <div className="row mt">
+          <button className="primary" onClick={loadUser}>Check again</button>
+          <button onClick={handleLogout}>Log out</button>
+        </div>
+      </AuthLayout>
+    )
   }
 
   return (
