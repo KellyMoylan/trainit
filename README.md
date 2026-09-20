@@ -83,6 +83,43 @@ The first account you create becomes a curator. To try the approval flow, sign u
 
 Tables and new columns are created automatically when the backend starts, through `run_migrations()` in `backend/app/database.py`. There is no separate migration tool, so back up the database before deploying a version that changes the schema.
 
+## Admin tool
+
+`backend/admin.py` is a command-line tool for fixing accounts and helping customers. It runs on your own computer against the database directly. There is deliberately no admin login inside the web app, and no way to sign in as someone else.
+
+**Connecting to production.** In the Render dashboard, open the database and copy its **External Database URL**. That URL contains the database password, so treat it like one: paste it into your terminal only, never into the repository, a chat, a ticket or a screenshot. Set it for the current terminal window only:
+
+```powershell
+$env:DATABASE_URL = "postgresql://..."     # the External Database URL
+python -m backend.admin orgs
+```
+
+Closing the terminal forgets it. The tool refuses to run if `DATABASE_URL` is unset, and prints the database it is connected to (password hidden) before doing anything, so check that line before a change. Use `sqlite:///./local.db` to practice on a local database first.
+
+| Command | What it does |
+|---|---|
+| `find <text>` | Search by email, name or organization |
+| `orgs` | List organizations; flags any with no curator |
+| `org <name>` | One organization and all its members |
+| `user <email>` | One account and how much it has created |
+| `pending` | Join requests waiting for approval, in every organization |
+| `audit [--limit N]` | The most recent admin changes |
+| `set-password <email>` | Random temporary password, and signs out their devices |
+| `set-role <email> <trainer\|supervisor\|curator>` | Change an active member's role |
+| `approve <email> [--role ...]` / `reject <email>` | Settle a stuck join request |
+| `remove <email>` / `restore <email>` | End or give back access; their work is kept |
+| `change-email <email> <new email>` | Fix a mistyped email |
+| `rename-org <name> <new name>` | Fix an organization's name |
+| `delete-user <email>` | Delete an account that has created nothing |
+
+Safe habits:
+
+- Look first (`user`, `org`), then change. Every change shows what it will do and waits for you to type `yes`. `--yes` skips that; leave it off when working on production.
+- Confirm who is asking before `set-password`, and send the temporary password privately. Ask them to change it under Profile. It is shown once and stored nowhere else.
+- Prefer `remove` to `delete-user`. Deleting is refused for anyone who has created animals, plans or sessions, and for an organization's only curator. To hand an organization to someone else, `set-role` them to curator first.
+- Every change is written to the `admin_audit_log` table (time, your computer username, the account, and what changed) in the same transaction as the change. Passwords are never logged. Read it with `audit`.
+- Back up before anything unusual. The tool changes live data with no undo.
+
 ## Project layout
 
 ```
@@ -94,6 +131,7 @@ backend/app/
   auth_utils.py   tokens and the login and role dependencies
   database.py     connection and startup migrations
   routes/         auth, animals, plans, plan_steps, team
+backend/admin.py  support tool run from your own computer (see Admin tool)
 frontend/src/
   App.tsx         pages and components
   App.css         component styles
