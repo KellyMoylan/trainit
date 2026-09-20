@@ -53,6 +53,18 @@ def create_plan_for_animal(
         raise HTTPException(status_code=404, detail="Animal not found or not in your organization")
     return result
 
+@router.post("/{plan_id}/steps", response_model=schemas.PlanStepOut, status_code=status.HTTP_201_CREATED)
+def add_step_to_plan(
+    plan_id: int,
+    step: schemas.PlanStepAdd,
+    current_user: schemas.UserOut = Depends(auth_utils.get_active_user),
+    db: Session = Depends(database.get_db)
+):
+    result = crud.add_plan_step(db, plan_id, step, current_user.id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Plan not found or not in your organization")
+    return result
+
 @router.get("/animal/{animal_id}", response_model=List[schemas.TrainingPlanOut])
 def get_plans_for_animal(
     animal_id: int,

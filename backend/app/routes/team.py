@@ -70,6 +70,48 @@ def reject_join_request(
     db.commit()
     return None
 
+@router.delete("/members/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_member(
+    user_id: int,
+    current_user=Depends(auth_utils.require_curator),
+    db: Session = Depends(database.get_db)
+):
+    """End someone's access. Their animals, plans and sessions stay, and so does the "Created by" name on them."""
+    target = _get_org_user(db, user_id, current_user.organization_id)
+    if target.id == current_user.id:
+        raise HTTPException(status_code=400, detail="You can't remove yourself")
+    if target.status != models.STATUS_ACTIVE:
+        raise HTTPException(status_code=400, detail="Only active members can be removed")
+    target.status = models.STATUS_REMOVED
+    # Ends every login the person has right now
+    target.token_version = (target.token_version or 0) + 1
+    db.commit()
+    return None
+
+@router.get("/removed", response_model=List[schemas.MemberOut])
+def list_removed_members(
+    current_user=Depends(auth_utils.require_curator),
+    db: Session = Depends(database.get_db)
+):
+    return db.query(models.User).filter(
+        models.User.organization_id == current_user.organization_id,
+        models.User.status == models.STATUS_REMOVED
+    ).order_by(models.User.email).all()
+
+@router.post("/members/{user_id}/restore", response_model=schemas.MemberOut)
+def restore_member(
+    user_id: int,
+    current_user=Depends(auth_utils.require_curator),
+    db: Session = Depends(database.get_db)
+):
+    target = _get_org_user(db, user_id, current_user.organization_id)
+    if target.status != models.STATUS_REMOVED:
+        raise HTTPException(status_code=400, detail="User has not been removed")
+    target.status = models.STATUS_ACTIVE
+    db.commit()
+    db.refresh(target)
+    return target
+
 @router.put("/members/{user_id}/role", response_model=schemas.MemberOut)
 def change_member_role(
     user_id: int,

@@ -66,6 +66,8 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
     return user
 
 def get_active_user(user = Depends(get_current_user)):
+    if user.status == models.STATUS_REMOVED:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Your access to this organization has been removed")
     if user.status != models.STATUS_ACTIVE:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Your membership is pending approval")
     return user

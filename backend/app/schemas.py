@@ -193,6 +193,26 @@ class PlanStepCreate(BaseModel):
     estimated_sessions: Optional[int] = None
     is_complete: Optional[bool] = False
 
+class PlanStepAdd(BaseModel):
+    # Adds a step to an existing plan; it goes at the end, and a blank name becomes "Step N"
+    name: Optional[str] = None
+    description: Optional[str] = None
+    estimated_sessions: Optional[int] = None
+
+    @field_validator("name", "description")
+    @classmethod
+    def blank_to_none(cls, value):
+        if value is None:
+            return None
+        return value.strip() or None
+
+    @field_validator("estimated_sessions")
+    @classmethod
+    def at_least_one_session(cls, value):
+        if value is not None and value < 1:
+            raise ValueError("A step needs at least 1 estimated session")
+        return value
+
 class PlanStepOut(BaseModel):
     id: int
     name: str

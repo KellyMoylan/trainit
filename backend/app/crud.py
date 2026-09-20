@@ -251,6 +251,25 @@ def get_plan_with_steps(db: Session, plan_id: int, user_id: int):
     
     return plan
 
+def add_plan_step(db: Session, plan_id: int, step_data: schemas.PlanStepAdd, user_id: int):
+    plan = get_plan_with_steps(db, plan_id, user_id)
+    if not plan:
+        return None
+    assert_can_edit_plan(db, plan, user_id)
+    next_order = max((step.order for step in plan.steps), default=0) + 1
+    db_step = models.PlanStep(
+        name=step_data.name or f"Step {len(plan.steps) + 1}",
+        description=step_data.description,
+        order=next_order,
+        estimated_sessions=step_data.estimated_sessions,
+        plan_id=plan.id,
+        is_complete=0,
+    )
+    db.add(db_step)
+    db.commit()
+    db.refresh(db_step)
+    return db_step
+
 def add_step_session_note(db: Session, step_id: int, note_data: schemas.StepSessionNoteCreate, user_id: int):
     # Verify the step belongs to a plan for an animal in the user's organization
     step = db.query(models.PlanStep).filter(models.PlanStep.id == step_id).first()

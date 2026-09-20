@@ -15,6 +15,7 @@ ROLE_RANK = {ROLE_TRAINER: 1, ROLE_SUPERVISOR: 2, ROLE_CURATOR: 3}
 
 STATUS_ACTIVE = "active"
 STATUS_PENDING = "pending"
+STATUS_REMOVED = "removed"  # Access ended by a curator; everything the person created is kept
 
 class Organization(Base):
     __tablename__ = "organizations"
@@ -78,7 +79,7 @@ class TrainingPlan(Base):
     created_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     animal = relationship("Animal", back_populates="plans")
     created_by = relationship("User", foreign_keys=[created_by_id])
-    steps = relationship("PlanStep", back_populates="plan", cascade="all, delete-orphan")
+    steps = relationship("PlanStep", back_populates="plan", cascade="all, delete-orphan", order_by="PlanStep.order, PlanStep.id")
 
     @property
     def created_by_name(self):
