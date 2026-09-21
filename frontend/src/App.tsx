@@ -927,9 +927,10 @@ function TrainingPlanPage({ token, onLogout }: { token: string; onLogout: () => 
     category: '',
     started_date: '',
   })
-  const [steps, setSteps] = useState([
-    { id: 1, name: '', description: '', estimated_sessions: 5 }
-  ])
+  // No estimate until someone chooses one
+  type DraftStep = { id: number; name: string; description: string; estimated_sessions: number | null }
+  const blankStep = (id: number): DraftStep => ({ id, name: '', description: '', estimated_sessions: null })
+  const [steps, setSteps] = useState<DraftStep[]>([blankStep(1)])
 
   const handleApiResponse = useApiResponse(onLogout)
 
@@ -959,7 +960,7 @@ function TrainingPlanPage({ token, onLogout }: { token: string; onLogout: () => 
     setForm({ ...form, [e.target.name]: e.target.value })
   }
 
-  const handleStepChange = (stepId: number, field: string, value: string | number) => {
+  const handleStepChange = (stepId: number, field: string, value: string | number | null) => {
     setSteps(steps.map(step => 
       step.id === stepId ? { ...step, [field]: value } : step
     ))
@@ -967,7 +968,7 @@ function TrainingPlanPage({ token, onLogout }: { token: string; onLogout: () => 
 
   const addStep = () => {
     const newId = Math.max(...steps.map(s => s.id)) + 1
-    setSteps([...steps, { id: newId, name: '', description: '', estimated_sessions: 5 }])
+    setSteps([...steps, blankStep(newId)])
   }
 
   const removeStep = (stepId: number) => {
@@ -1007,7 +1008,7 @@ function TrainingPlanPage({ token, onLogout }: { token: string; onLogout: () => 
       .then(data => {
         if (data !== null) {
           setForm({ animal_id: '', name: '', cue_description: '', criteria: '', category: '', started_date: '' })
-          setSteps([{ id: 1, name: '', description: '', estimated_sessions: 5 }])
+          setSteps([blankStep(1)])
           alert('Training plan created successfully!')
         }
         setSubmitting(false)
@@ -1106,13 +1107,14 @@ function TrainingPlanPage({ token, onLogout }: { token: string; onLogout: () => 
                   </Field>
                 </div>
                 <div className="stack">
-                  <Field label="Estimated sessions" htmlFor={`step-sessions-${step.id}`}>
+                  <Field label="Estimated sessions (optional)" htmlFor={`step-sessions-${step.id}`}>
                     <select
                       id={`step-sessions-${step.id}`}
-                      value={step.estimated_sessions}
-                      onChange={(e) => handleStepChange(step.id, 'estimated_sessions', parseInt(e.target.value))}
+                      value={step.estimated_sessions ?? ''}
+                      onChange={(e) => handleStepChange(step.id, 'estimated_sessions', e.target.value ? parseInt(e.target.value) : null)}
                     >
-                      {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 20].map(num => (
+                      <option value="">No estimate</option>
+                      {ESTIMATE_CHOICES.map(num => (
                         <option key={num} value={num}>{num} session{num !== 1 ? 's' : ''}</option>
                       ))}
                     </select>
@@ -1169,6 +1171,7 @@ interface PlanStep {
   order: number
   estimated_sessions: number | null
   is_complete: boolean
+  comment_count: number
 }
 
 interface SessionNote {
@@ -1191,6 +1194,12 @@ interface PlanSummary {
   created_by_name: string | null
 }
 
+// The estimate is optional; these are the choices offered when someone wants to give one
+const ESTIMATE_CHOICES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 20]
+
+// A step's estimate as typed into a form: blank means none
+const parseEstimate = (text: string) => (text.trim() ? Number(text) : null)
+
 const PLAN_CATEGORIES = ['Husbandry', 'Aerial', 'Conceptual', 'Stationary', 'Vocal', 'Interaction']
 
 interface AnimalRow {
@@ -1208,6 +1217,10 @@ const DAY_WIDTH = 20
 
 const stepStatus = (step: PlanStep, noteCount: number): StepStatus =>
   step.is_complete ? 'complete' : noteCount > 0 ? 'progress' : 'idle'
+
+// "3 of 5 sessions" when a step has an estimate, "3 sessions" when it doesn't
+const sessionsLabel = (count: number, estimate: number | null) =>
+  estimate ? `${count} of ${estimate} sessions` : `${count} ${count === 1 ? 'session' : 'sessions'}`
 
 // Steps are created as "Step 1", "Step 2"..., so the description is the real title; a step someone renamed keeps its name
 const stepText = (step: PlanStep) => {
@@ -1374,7 +1387,7 @@ function PlanTimeline({ steps, notesByStepId, activeDotKey, onActiveDotChange, o
                   <StepNumber status={status} n={idx + 1} />
                   <button className="cal-label-button" onClick={() => onOpenStep(step.id)} title="Open in list">
                     <span className="cal-label-title">{title}</span>
-                    <span className="muted cal-label-sub">{sessionCount} of {step.estimated_sessions ?? 0} sessions</span>
+                    <span className="muted cal-label-sub">{sessionsLabel(sessionCount, step.estimated_sessions)}</span>
                   </button>
                 </div>
                 <div className="cal-lane">
@@ -1438,8 +1451,163 @@ function PlanTimeline({ steps, notesByStepId, activeDotKey, onActiveDotChange, o
   )
 }
 
-function PlanDetail({ token, plan, steps, notesByStepId, stepsLoading, canEdit, onStepsChange, onNotesChange, onPlanChange, onPlanDeleted, onLogout }: {
+interface StepComment {
+  id: number
+  author_id: number
+  author_name: string | null
+  body: string
+  created_at: string
+  updated_at: string | null
+}
+
+// Comment times are UTC without a zone marker, like session entry times
+const formatCommentWhen = (iso: string) =>
+  new Date(iso + 'Z').toLocaleString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
+
+// Feedback on one step. Everyone in the organization can read it; supervisors and curators write it, on any plan.
+// You edit only your own comments; you can delete your own, and a curator can delete anyone's.
+function StepComments({ token, stepId, user, onCountChange, onLogout }: {
   token: string
+  stepId: number
+  user: User
+  onCountChange: (stepId: number, count: number) => void
+  onLogout: () => void
+}) {
+  const [comments, setComments] = useState<StepComment[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [draft, setDraft] = useState('')
+  const [editingId, setEditingId] = useState<number | null>(null)
+  const [editText, setEditText] = useState('')
+  const [deletingId, setDeletingId] = useState<number | null>(null)
+  const [busy, setBusy] = useState(false)
+  const canComment = canManageTeam(user)
+
+  const request = useCallback(async (path: string, init: RequestInit = {}) => {
+    const response = await fetch(`${apiUrl}${path}`, {
+      ...init,
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+    })
+    if (response.status === 401) {
+      onLogout()
+      throw new Error('Session expired')
+    }
+    if (!response.ok) throw new Error(apiErrorMessage(await response.json().catch(() => null), `HTTP error! status: ${response.status}`))
+    return response.status === 204 ? null : response.json()
+  }, [token, onLogout])
+
+  useEffect(() => {
+    let current = true
+    request(`/steps/${stepId}/comments`)
+      .then((data: StepComment[]) => { if (current) setComments(data) })
+      .catch(() => { if (current) setError('Failed to load comments') })
+    return () => { current = false }
+  }, [request, stepId])
+
+  // Runs a change, then reloads the list so it always matches the server, and tells the step row the new count
+  const act = async (path: string, init: RequestInit, failure: string) => {
+    setBusy(true)
+    setError(null)
+    try {
+      await request(path, init)
+      const fresh: StepComment[] = await request(`/steps/${stepId}/comments`)
+      setComments(fresh)
+      onCountChange(stepId, fresh.length)
+      return true
+    } catch (err) {
+      setError(err instanceof Error && !err.message.startsWith('HTTP error') ? err.message : failure)
+      return false
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const post = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (await act(`/steps/${stepId}/comments`, { method: 'POST', body: JSON.stringify({ body: draft }) }, 'Failed to post the comment.')) setDraft('')
+  }
+
+  const saveEdit = async (e: React.FormEvent, comment: StepComment) => {
+    e.preventDefault()
+    if (await act(`/steps/comments/${comment.id}`, { method: 'PUT', body: JSON.stringify({ body: editText }) }, 'Failed to save the comment.')) setEditingId(null)
+  }
+
+  const remove = async (comment: StepComment) => {
+    if (await act(`/steps/comments/${comment.id}`, { method: 'DELETE' }, 'Failed to delete the comment.')) setDeletingId(null)
+  }
+
+  // Trainers have nothing to do here until someone has commented
+  if (!canComment && (comments === null || comments.length === 0)) return null
+
+  return (
+    <section className="comments" aria-label="Comments on this step">
+      <h4 className="comments-title">Comments{comments && comments.length > 0 ? ` (${comments.length})` : ''}</h4>
+      {error && <div className="error">{error}</div>}
+      {comments === null ? (
+        !error && <p className="muted">Loading comments...</p>
+      ) : comments.length === 0 ? (
+        <p className="muted comments-empty">No comments yet.</p>
+      ) : (
+        comments.map(comment => {
+          const mine = comment.author_id === user.id
+          return (
+            <div className="comment" key={comment.id}>
+              <div className="comment-head">
+                <span className="comment-author">{comment.author_name ?? 'Unknown'}{mine && <span className="badge you">You</span>}</span>
+                <span className="comment-when">
+                  {formatCommentWhen(comment.created_at)}
+                  {comment.updated_at && <span title={`Edited ${formatCommentWhen(comment.updated_at)}`}> · edited</span>}
+                </span>
+                {canComment && editingId !== comment.id && deletingId !== comment.id && (
+                  <span className="comment-actions">
+                    {mine && <button className="ghost small" onClick={() => { setError(null); setDeletingId(null); setEditText(comment.body); setEditingId(comment.id) }}>Edit</button>}
+                    {(mine || user.role === 'curator') && <button className="ghost small" onClick={() => { setError(null); setEditingId(null); setDeletingId(comment.id) }}>Delete</button>}
+                  </span>
+                )}
+              </div>
+              {editingId === comment.id ? (
+                <form className="panel-form" onSubmit={e => saveEdit(e, comment)}>
+                  <textarea aria-label="Edit comment" rows={3} maxLength={2000} value={editText} onChange={e => setEditText(e.target.value)} autoFocus />
+                  <div className="row">
+                    <button type="submit" className="primary small" disabled={busy || !editText.trim()}>{busy ? 'Saving...' : 'Save'}</button>
+                    <button type="button" className="small" onClick={() => setEditingId(null)}>Cancel</button>
+                  </div>
+                </form>
+              ) : (
+                <p className="comment-text">{comment.body}</p>
+              )}
+              {deletingId === comment.id && (
+                <div className="row">
+                  <span className="muted">Delete this comment?</span>
+                  <button className="danger small" disabled={busy} onClick={() => remove(comment)}>Delete</button>
+                  <button className="small" onClick={() => setDeletingId(null)}>Cancel</button>
+                </div>
+              )}
+            </div>
+          )
+        })
+      )}
+      {canComment && (
+        <form className="panel-form comment-form" onSubmit={post}>
+          <textarea
+            aria-label="Add a comment"
+            rows={2}
+            maxLength={2000}
+            placeholder="Leave feedback on this step"
+            value={draft}
+            onChange={e => setDraft(e.target.value)}
+          />
+          <div className="row">
+            <button type="submit" className="primary small" disabled={busy || !draft.trim()}>{busy ? 'Posting...' : 'Post comment'}</button>
+          </div>
+        </form>
+      )}
+    </section>
+  )
+}
+
+function PlanDetail({ token, user, plan, steps, notesByStepId, stepsLoading, canEdit, onStepsChange, onNotesChange, onPlanChange, onPlanDeleted, onLogout }: {
+  token: string
+  user: User
   plan: PlanSummary
   steps: PlanStep[]
   notesByStepId: NotesByStepId
@@ -1458,7 +1626,7 @@ function PlanDetail({ token, plan, steps, notesByStepId, stepsLoading, canEdit, 
   const [planForm, setPlanForm] = useState({ name: '', category: '', started_date: '', cue_description: '', criteria: '' })
   const [planError, setPlanError] = useState<string | null>(null)
   const [addingStep, setAddingStep] = useState(false)
-  const [newStep, setNewStep] = useState({ name: '', description: '', estimated_sessions: '5' })
+  const [newStep, setNewStep] = useState({ name: '', description: '', estimated_sessions: '' })
   const [stepAddError, setStepAddError] = useState<string | null>(null)
   const [stepForm, setStepForm] = useState({ name: '', description: '', estimated_sessions: '' })
   const [sessionForm, setSessionForm] = useState({ note: '', performed_date: '', performed_time: '', markComplete: false })
@@ -1546,7 +1714,7 @@ function PlanDetail({ token, plan, steps, notesByStepId, stepsLoading, canEdit, 
 
   const startAddStep = () => {
     setStepAddError(null)
-    setNewStep({ name: '', description: '', estimated_sessions: '5' })
+    setNewStep({ name: '', description: '', estimated_sessions: '' })
     setAddingStep(true)
   }
 
@@ -1556,7 +1724,7 @@ function PlanDetail({ token, plan, steps, notesByStepId, stepsLoading, canEdit, 
       body: JSON.stringify({
         name: newStep.name.trim() || null,
         description: newStep.description,
-        estimated_sessions: Number(newStep.estimated_sessions),
+        estimated_sessions: parseEstimate(newStep.estimated_sessions),
       }),
     })
     const created: PlanStep = await response.json()
@@ -1604,7 +1772,7 @@ function PlanDetail({ token, plan, steps, notesByStepId, stepsLoading, canEdit, 
   const saveStep = (e: React.FormEvent, step: PlanStep) => run(e, 'Failed to update step.', async () => {
     const response = await request(`/steps/${step.id}`, {
       method: 'PUT',
-      body: JSON.stringify({ name: stepForm.name, description: stepForm.description, estimated_sessions: Number(stepForm.estimated_sessions) }),
+      body: JSON.stringify({ name: stepForm.name, description: stepForm.description, estimated_sessions: parseEstimate(stepForm.estimated_sessions) }),
     })
     const updated = await response.json()
     onStepsChange(previous => previous.map(s => (s.id === step.id ? { ...s, ...updated } : s)))
@@ -1653,9 +1821,13 @@ function PlanDetail({ token, plan, steps, notesByStepId, stepsLoading, canEdit, 
 
   const noteCounts = steps.map(step => (notesByStepId[step.id] ?? []).length)
   const logged = noteCounts.reduce((sum, count) => sum + count, 0)
-  const planned = steps.reduce((sum, step) => sum + (step.estimated_sessions ?? 0), 0)
+  // Only steps with an estimate count toward "planned" and the overall percentage; the rest still add to sessions logged
+  const estimatedIndexes = steps.map((step, i) => (step.estimated_sessions ? i : -1)).filter(i => i >= 0)
+  const planned = estimatedIndexes.reduce((sum, i) => sum + (steps[i].estimated_sessions ?? 0), 0)
+  const loggedAgainstPlan = estimatedIndexes.reduce((sum, i) => sum + noteCounts[i], 0)
+  const allEstimated = steps.length > 0 && estimatedIndexes.length === steps.length
   const completeCount = steps.filter(step => step.is_complete).length
-  const percent = planned > 0 ? Math.min(100, Math.round((logged / planned) * 100)) : 0
+  const percent = planned > 0 ? Math.min(100, Math.round((loggedAgainstPlan / planned) * 100)) : 0
 
   return (
     <section className="card mt">
@@ -1665,8 +1837,8 @@ function PlanDetail({ token, plan, steps, notesByStepId, stepsLoading, canEdit, 
           {plan.created_by_name && <span className="muted">Created by {plan.created_by_name}</span>}
         </div>
         <div className="plan-summary">
-          <div className="stat"><b>{percent}%</b><span>overall</span></div>
-          <div className="stat"><b>{logged}</b><span>of {planned} sessions</span></div>
+          {planned > 0 && <div className="stat"><b>{percent}%</b><span>overall</span></div>}
+          <div className="stat"><b>{logged}</b><span>{allEstimated ? `of ${planned} sessions` : logged === 1 ? 'session logged' : 'sessions logged'}</span></div>
           <div className="stat"><b>{completeCount}</b><span>of {steps.length} steps complete</span></div>
           <div className="view-switch" role="group" aria-label="Plan view">
             <button aria-pressed={view === 'list'} onClick={() => setView('list')}>List</button>
@@ -1773,11 +1945,12 @@ function PlanDetail({ token, plan, steps, notesByStepId, stepsLoading, canEdit, 
                   <span className="c-name">
                     <span className="step-name">{title}</span>
                     {subtitle && <span className="step-desc">{subtitle}</span>}
+                    {step.comment_count > 0 && <span className="badge comment-chip">{step.comment_count} {step.comment_count === 1 ? 'comment' : 'comments'}</span>}
                   </span>
                   <span className="c-status"><StatusPill status={status} /></span>
                   <span className="c-prog">
-                    <ProgressMeter planned={plannedForStep} logged={notes.length} status={status} />
-                    <small>{notes.length} / {plannedForStep}</small>
+                    {plannedForStep > 0 && <ProgressMeter planned={plannedForStep} logged={notes.length} status={status} />}
+                    <small>{plannedForStep > 0 ? `${notes.length} / ${plannedForStep}` : sessionsLabel(notes.length, null)}</small>
                   </span>
                   <span className="c-last">{notes.length > 0 ? formatNoteDate(notes[notes.length - 1]) : '—'}</span>
                   <span className="c-chev"><Chevron open={open} /></span>
@@ -1797,8 +1970,8 @@ function PlanDetail({ token, plan, steps, notesByStepId, stepsLoading, canEdit, 
                           <textarea rows={3} value={stepForm.description} onChange={e => setStepForm(f => ({ ...f, description: e.target.value }))} />
                         </label>
                         <label className="field">
-                          <span className="field-label">Estimated sessions</span>
-                          <input type="number" min={1} value={stepForm.estimated_sessions} onChange={e => setStepForm(f => ({ ...f, estimated_sessions: e.target.value }))} required />
+                          <span className="field-label">Estimated sessions (optional)</span>
+                          <input type="number" min={1} step={1} placeholder="No estimate" value={stepForm.estimated_sessions} onChange={e => setStepForm(f => ({ ...f, estimated_sessions: e.target.value }))} />
                         </label>
                         <div className="row">
                           <button type="submit" className="primary small" disabled={busy}>{busy ? 'Saving...' : 'Save'}</button>
@@ -1885,6 +2058,14 @@ function PlanDetail({ token, plan, steps, notesByStepId, stepsLoading, canEdit, 
                             ))}
                           </div>
                         )}
+                        <StepComments
+                          key={step.id}
+                          token={token}
+                          stepId={step.id}
+                          user={user}
+                          onLogout={onLogout}
+                          onCountChange={(stepId, count) => onStepsChange(previous => previous.map(s => (s.id === stepId ? { ...s, comment_count: count } : s)))}
+                        />
                         {canEdit && (
                           <div className="row">
                             <button className="primary small" onClick={startAddSession}>Add session</button>
@@ -1919,9 +2100,10 @@ function PlanDetail({ token, plan, steps, notesByStepId, stepsLoading, canEdit, 
                 <textarea rows={3} placeholder="Describe this training step" value={newStep.description} onChange={e => setNewStep(f => ({ ...f, description: e.target.value }))} required />
               </label>
               <label className="field">
-                <span className="field-label">Estimated sessions</span>
+                <span className="field-label">Estimated sessions (optional)</span>
                 <select value={newStep.estimated_sessions} onChange={e => setNewStep(f => ({ ...f, estimated_sessions: e.target.value }))}>
-                  {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 20].map(num => (
+                  <option value="">No estimate</option>
+                  {ESTIMATE_CHOICES.map(num => (
                     <option key={num} value={num}>{num} session{num !== 1 ? 's' : ''}</option>
                   ))}
                 </select>
@@ -2099,6 +2281,7 @@ function TrainingPlansListPage({ token, user, onLogout }: { token: string; user:
         <PlanDetail
           key={selectedPlan.id}
           token={token}
+          user={user}
           plan={selectedPlan}
           steps={steps}
           notesByStepId={notesByStepId}

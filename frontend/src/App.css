@@ -998,6 +998,78 @@ td select {
   white-space: pre-wrap;
 }
 
+/* ---------- Comments on a step ---------- */
+.comments {
+  margin: 4px 0 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.comments-title {
+  margin-bottom: 10px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.comments-empty {
+  margin-bottom: 10px;
+}
+
+.comment {
+  max-width: 70ch;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.comment-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+
+.comment-author {
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.comment-when {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+.comment-actions {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.comment-text {
+  margin-top: 4px;
+  font-size: 0.9rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.comment .panel-form {
+  max-width: none;
+  margin-top: 8px;
+}
+
+.comment-form {
+  max-width: 70ch;
+}
+
+.comment-chip {
+  margin-top: 4px;
+}
+
 .panel-form {
   display: flex;
   flex-direction: column;

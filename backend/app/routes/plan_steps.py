@@ -25,6 +25,52 @@ def list_notes_for_step(
 ):
     return crud.get_notes_for_step(db, step_id, current_user.id)
 
+# Comments: anyone in the organization can read them; supervisors and curators write them, on any plan
+@router.get("/{step_id}/comments", response_model=List[schemas.StepCommentOut])
+def list_step_comments(
+    step_id: int,
+    current_user: schemas.UserOut = Depends(auth_utils.get_active_user),
+    db: Session = Depends(database.get_db)
+):
+    comments = crud.get_step_comments(db, step_id, current_user.id)
+    if comments is None:
+        raise HTTPException(status_code=404, detail="Step not found or not in your organization")
+    return comments
+
+@router.post("/{step_id}/comments", response_model=schemas.StepCommentOut)
+def add_step_comment(
+    step_id: int,
+    comment: schemas.CommentBody,
+    current_user: schemas.UserOut = Depends(auth_utils.require_supervisor),
+    db: Session = Depends(database.get_db)
+):
+    result = crud.add_step_comment(db, step_id, comment.body, current_user.id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Step not found or not in your organization")
+    return result
+
+@router.put("/comments/{comment_id}", response_model=schemas.StepCommentOut)
+def update_step_comment(
+    comment_id: int,
+    comment: schemas.CommentBody,
+    current_user: schemas.UserOut = Depends(auth_utils.require_supervisor),
+    db: Session = Depends(database.get_db)
+):
+    result = crud.update_step_comment(db, comment_id, comment.body, current_user.id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Comment not found or not in your organization")
+    return result
+
+@router.delete("/comments/{comment_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_step_comment(
+    comment_id: int,
+    current_user: schemas.UserOut = Depends(auth_utils.require_supervisor),
+    db: Session = Depends(database.get_db)
+):
+    if not crud.delete_step_comment(db, comment_id, current_user.id):
+        raise HTTPException(status_code=404, detail="Comment not found or not in your organization")
+    return None
+
 @router.post("/{step_id}/complete", response_model=schemas.PlanStepOut)
 def mark_step_complete(
     step_id: int,

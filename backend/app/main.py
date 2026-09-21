@@ -45,6 +45,10 @@ app.include_router(plan_steps.router)
 app.include_router(team.router)
 app.include_router(options.router)
 
+@app.exception_handler(crud.CommentForbidden)
+def comment_forbidden_handler(request: Request, exc: crud.CommentForbidden):
+    return JSONResponse(status_code=403, content={"detail": exc.message})
+
 @app.exception_handler(crud.OptionError)
 def option_error_handler(request: Request, exc: crud.OptionError):
     return JSONResponse(status_code=exc.status_code, content={"detail": exc.message})

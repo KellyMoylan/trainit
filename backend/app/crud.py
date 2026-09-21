@@ -1,5 +1,5 @@
 from collections import Counter
-from datetime import time
+from datetime import datetime, time
 from typing import Optional
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -600,5 +600,63 @@ def delete_session_note(db: Session, note_id: int, user_id: int):
     
     assert_can_edit_plan(db, plan, user_id)
     db.delete(note)
+    db.commit()
+    return True
+
+# ---- Comments on a step ----
+# Supervisors and curators (the routes require it) can comment on any step in their organization, including
+# on plans they didn't create. Everyone in the organization can read them. Only the author edits a comment.
+
+class CommentForbidden(Exception):
+    def __init__(self, message: str):
+        super().__init__(message)
+        self.message = message
+
+def _step_in_organization(db: Session, step_id: int, user_id: int):
+    step = db.query(models.PlanStep).filter(models.PlanStep.id == step_id).first()
+    if not step:
+        return None
+    # A step belongs to a plan, which belongs to an animal, which belongs to an organization
+    return step if get_animal_by_id(db, step.plan.animal_id, user_id) else None
+
+def _comment_in_organization(db: Session, comment_id: int, user_id: int):
+    comment = db.query(models.StepComment).filter(models.StepComment.id == comment_id).first()
+    if not comment or not _step_in_organization(db, comment.step_id, user_id):
+        return None
+    return comment
+
+def get_step_comments(db: Session, step_id: int, user_id: int):
+    step = _step_in_organization(db, step_id, user_id)
+    return None if step is None else list(step.comments)
+
+def add_step_comment(db: Session, step_id: int, body: str, user_id: int):
+    if not _step_in_organization(db, step_id, user_id):
+        return None
+    comment = models.StepComment(step_id=step_id, author_id=user_id, body=body)
+    db.add(comment)
+    db.commit()
+    db.refresh(comment)
+    return comment
+
+def update_step_comment(db: Session, comment_id: int, body: str, user_id: int):
+    comment = _comment_in_organization(db, comment_id, user_id)
+    if not comment:
+        return None
+    if comment.author_id != user_id:
+        raise CommentForbidden("You can only edit your own comments")
+    comment.body = body
+    comment.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(comment)
+    return comment
+
+def delete_step_comment(db: Session, comment_id: int, user_id: int):
+    comment = _comment_in_organization(db, comment_id, user_id)
+    if not comment:
+        return False
+    user = get_user_by_id(db, user_id)
+    if comment.author_id != user_id and user.role != models.ROLE_CURATOR:
+        raise CommentForbidden("Only the author or a curator can delete a comment")
+    db.delete(comment)
     db.commit()
     return True

@@ -204,12 +204,23 @@ class TokenData(BaseModel):
     email: Optional[str] = None
     version: int = 0
 
+# The estimate is optional: leaving it out means "no estimate", but a number has to be a real one
+def check_estimated_sessions(value: Optional[int]) -> Optional[int]:
+    if value is not None and value < 1:
+        raise ValueError("An estimate needs at least 1 session, or leave it blank")
+    return value
+
 class PlanStepCreate(BaseModel):
     name: str
     description: Optional[str] = None
     order: int
     estimated_sessions: Optional[int] = None
     is_complete: Optional[bool] = False
+
+    @field_validator("estimated_sessions")
+    @classmethod
+    def valid_estimate(cls, value):
+        return check_estimated_sessions(value)
 
 class PlanStepAdd(BaseModel):
     # Adds a step to an existing plan; it goes at the end, and a blank name becomes "Step N"
@@ -226,10 +237,8 @@ class PlanStepAdd(BaseModel):
 
     @field_validator("estimated_sessions")
     @classmethod
-    def at_least_one_session(cls, value):
-        if value is not None and value < 1:
-            raise ValueError("A step needs at least 1 estimated session")
-        return value
+    def valid_estimate(cls, value):
+        return check_estimated_sessions(value)
 
 class PlanStepOut(BaseModel):
     id: int
@@ -238,6 +247,32 @@ class PlanStepOut(BaseModel):
     order: int
     estimated_sessions: Optional[int] = None
     is_complete: bool
+    comment_count: int = 0
+
+    class Config:
+        from_attributes = True
+
+class CommentBody(BaseModel):
+    body: str
+
+    @field_validator("body")
+    @classmethod
+    def valid_body(cls, value):
+        value = value.strip()
+        if not value:
+            raise ValueError("A comment can't be empty")
+        if len(value) > 2000:
+            raise ValueError("A comment can be at most 2000 characters")
+        return value
+
+class StepCommentOut(BaseModel):
+    id: int
+    step_id: int
+    author_id: int
+    author_name: Optional[str] = None
+    body: str
+    created_at: datetime
+    updated_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
@@ -302,6 +337,11 @@ class PlanStepUpdate(BaseModel):
     order: Optional[int] = None
     estimated_sessions: Optional[int] = None
     is_complete: Optional[bool] = None
+
+    @field_validator("estimated_sessions")
+    @classmethod
+    def valid_estimate(cls, value):
+        return check_estimated_sessions(value)
 
 class StepSessionNoteUpdate(BaseModel):
     note: Optional[str] = None

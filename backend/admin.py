@@ -170,13 +170,14 @@ def cmd_user(db, args):
     animals = db.query(models.Animal).filter(models.Animal.owner_id == user.id).count()
     plans = db.query(models.TrainingPlan).filter(models.TrainingPlan.created_by_id == user.id).count()
     logs = db.query(models.TimeLog).filter(models.TimeLog.user_id == user.id).count()
+    comments = db.query(models.StepComment).filter(models.StepComment.author_id == user.id).count()
     print(f"id:            {user.id}")
     print(f"email:         {user.email}")
     print(f"name:          {full_name(user)}")
     print(f"department:    {user.department or '-'}")
     print(f"organization:  {user.organization.name} (id {user.organization_id})")
     print(f"role / status: {user.role} / {user.status}")
-    print(f"created:       {animals} animals, {plans} plans, {logs} time logs")
+    print(f"created:       {animals} animals, {plans} plans, {logs} time logs, {comments} step comments")
 
 
 def cmd_pending(db, args):
@@ -325,6 +326,7 @@ def cmd_delete_user(db, args):
         "animals": db.query(models.Animal).filter(models.Animal.owner_id == user.id).count(),
         "plans": db.query(models.TrainingPlan).filter(models.TrainingPlan.created_by_id == user.id).count(),
         "time logs": db.query(models.TimeLog).filter(models.TimeLog.user_id == user.id).count(),
+        "step comments": db.query(models.StepComment).filter(models.StepComment.author_id == user.id).count(),
     }
     owned = {name: count for name, count in owned.items() if count}
     if owned:

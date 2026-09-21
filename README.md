@@ -7,8 +7,9 @@ A web app for marine animal training teams. Track the animals in your facility, 
 - **Organizations and roles:** every account belongs to one organization, and each organization only sees its own data. See [Roles](#roles).
 - **Animals:** name, species, sex, birth date (age is calculated and goes up on the birthday), and location. Animals are grouped by location.
 - **Locations and species lists:** each organization keeps its own lists, and animals are picked from them, so one place can't turn into several spellings. See [Locations and species](#locations-and-species).
-- **Training plans:** a plan has a cue, success criteria, a category, and ordered steps with an estimated number of sessions each. Steps can be named, and you can edit a plan, add or delete steps, mark a step complete or reopen it, and delete the plan.
+- **Training plans:** a plan has a cue, success criteria, a category, and ordered steps, each with an optional estimate of how many sessions it will take. Without an estimate a step just counts its sessions, and only steps with one feed the plan's overall percentage. Steps can be named, and you can edit a plan, add or delete steps, mark a step complete or reopen it, and delete the plan.
 - **Session log:** log a session against a step with a date, a time, and a note. Sessions on the same day sort by time.
+- **Step comments:** supervisors and curators can leave feedback on any step of any plan, including plans they didn't create. Comments are on the step, not on individual sessions. Everyone in the organization can read them, and a step with comments shows a count in the plan list.
 - **Two views of a plan:** a status table (each step shows Not started, In progress or Complete, with progress and an expandable session log) and a calendar timeline showing when sessions happened.
 - **Profiles:** first and last name, department, bio, and changing your own email and password.
 - **Light and dark themes:** the picker is in the sidebar and defaults to your system setting.
@@ -20,6 +21,8 @@ A web app for marine animal training teams. Track the animals in your facility, 
 | View animals and plans | yes | yes | yes |
 | Create plans, add sessions, mark steps complete | yes | yes | yes |
 | Edit or delete a plan and its steps and sessions | own plans only | any plan | any plan |
+| Read comments on a plan's steps | yes | yes | yes |
+| Comment on any plan's steps | | yes | yes |
 | Add, edit, delete animals | | yes | yes |
 | Manage the locations and species lists | | yes | yes |
 | Approve or reject join requests | | yes | yes |
@@ -27,6 +30,8 @@ A web app for marine animal training teams. Track the animals in your facility, 
 | Remove a member, or restore one | | | yes |
 
 Signing up with a new organization name creates the organization and makes you its curator. Signing up with an existing name creates a pending request that a supervisor or curator has to approve. An organization always keeps at least one curator.
+
+Comments belong to whoever wrote them: only the author edits a comment, and the author or any curator can delete it. A trainer, even the plan's own creator, reads comments but doesn't write them. A supervisor who is later made a trainer keeps their old comments but can no longer add or change any.
 
 Removing a member ends their access immediately but keeps everything they created, including the "Created by" name on their plans. A curator can restore them later. An animal that still has training plans can't be deleted until its plans are.
 
@@ -167,7 +172,7 @@ Everything except signup and login needs an `Authorization: Bearer <token>` head
 - `GET`, `POST`, `PUT`, `DELETE` on `/animals/`
 - `GET`, `POST` on `/options/locations` and `/options/species`; `PUT`, `DELETE` on `/options/{locations|species}/{id}` (`DELETE` takes `?move_to=<id>` or, for locations, `?unassign=true`); `GET /options/species/suggestions`
 - `POST /plans/animal/{id}`, `GET /plans/animal/{id}`, and `GET`, `PUT`, `DELETE` on `/plans/{id}`; `POST /plans/{id}/steps`
-- `PUT`, `DELETE` on `/steps/{id}`; `POST /steps/{id}/complete`; `GET`, `POST` on `/steps/{id}/notes`; `PUT`, `DELETE` on `/steps/notes/{id}`
+- `PUT`, `DELETE` on `/steps/{id}`; `POST /steps/{id}/complete`; `GET`, `POST` on `/steps/{id}/notes`; `PUT`, `DELETE` on `/steps/notes/{id}`; `GET`, `POST` on `/steps/{id}/comments`; `PUT`, `DELETE` on `/steps/comments/{id}`
 
 ## Security notes
 

@@ -8,6 +8,13 @@ def age_in_years(birth_date: date, today: date = None) -> int:
     had_birthday = (today.month, today.day) >= (birth_date.month, birth_date.day)
     return max(today.year - birth_date.year - (0 if had_birthday else 1), 0)
 
+def person_name(user):
+    """Full name, or the email for someone who has none; None when there is no such user."""
+    if user is None:
+        return None
+    name = f"{user.first_name or ''} {user.last_name or ''}".strip()
+    return name or user.email
+
 ROLE_TRAINER = "trainer"
 ROLE_SUPERVISOR = "supervisor"
 ROLE_CURATOR = "curator"
@@ -95,11 +102,7 @@ class TrainingPlan(Base):
 
     @property
     def created_by_name(self):
-        creator = self.created_by
-        if creator is None:
-            return None
-        name = f"{creator.first_name or ''} {creator.last_name or ''}".strip()
-        return name or creator.email
+        return person_name(self.created_by)
 
 class PlanStep(Base):
     __tablename__ = "plan_steps"
@@ -111,7 +114,12 @@ class PlanStep(Base):
     plan_id = Column(Integer, ForeignKey("training_plans.id"), nullable=False)
     plan = relationship("TrainingPlan", back_populates="steps")
     session_notes = relationship("StepSessionNote", back_populates="step", cascade="all, delete-orphan")
+    comments = relationship("StepComment", back_populates="step", cascade="all, delete-orphan", order_by="StepComment.created_at, StepComment.id")
     is_complete = Column(Integer, default=0)  # 0 = not complete, 1 = complete
+
+    @property
+    def comment_count(self):
+        return len(self.comments)
 
 class TimeLog(Base):
     __tablename__ = "timelogs"
@@ -134,3 +142,19 @@ class StepSessionNote(Base):
     performed_date = Column(Date, nullable=True)
     performed_time = Column(Time, nullable=True)  # Empty on sessions logged before times existed
     step = relationship("PlanStep", back_populates="session_notes")
+
+class StepComment(Base):
+    """A supervisor's or curator's comment on one step of a plan. Comments are on the step, not on its sessions."""
+    __tablename__ = "step_comments"
+    id = Column(Integer, primary_key=True, index=True)
+    step_id = Column(Integer, ForeignKey("plan_steps.id"), nullable=False, index=True)
+    author_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    body = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=True)  # Set when the author edits it
+    step = relationship("PlanStep", back_populates="comments")
+    author = relationship("User")
+
+    @property
+    def author_name(self):
+        return person_name(self.author)
