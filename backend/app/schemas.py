@@ -178,6 +178,24 @@ class MemberOut(BaseModel):
 class RoleAssign(BaseModel):
     role: str
 
+class OptionName(BaseModel):
+    name: str
+
+    @field_validator("name")
+    @classmethod
+    def clean_name(cls, value):
+        value = " ".join(value.split())
+        if not value:
+            raise ValueError("Name cannot be blank")
+        if len(value) > 80:
+            raise ValueError("Name is too long (80 characters at most)")
+        return value
+
+class OptionOut(BaseModel):
+    id: int
+    name: str
+    animal_count: int
+
 class Token(BaseModel):
     access_token: str
     token_type: str

@@ -6,6 +6,7 @@ A web app for marine animal training teams. Track the animals in your facility, 
 
 - **Organizations and roles:** every account belongs to one organization, and each organization only sees its own data. See [Roles](#roles).
 - **Animals:** name, species, sex, birth date (age is calculated and goes up on the birthday), and location. Animals are grouped by location.
+- **Locations and species lists:** each organization keeps its own lists, and animals are picked from them, so one place can't turn into several spellings. See [Locations and species](#locations-and-species).
 - **Training plans:** a plan has a cue, success criteria, a category, and ordered steps with an estimated number of sessions each. Steps can be named, and you can edit a plan, add or delete steps, mark a step complete or reopen it, and delete the plan.
 - **Session log:** log a session against a step with a date, a time, and a note. Sessions on the same day sort by time.
 - **Two views of a plan:** a status table (each step shows Not started, In progress or Complete, with progress and an expandable session log) and a calendar timeline showing when sessions happened.
@@ -20,6 +21,7 @@ A web app for marine animal training teams. Track the animals in your facility, 
 | Create plans, add sessions, mark steps complete | yes | yes | yes |
 | Edit or delete a plan and its steps and sessions | own plans only | any plan | any plan |
 | Add, edit, delete animals | | yes | yes |
+| Manage the locations and species lists | | yes | yes |
 | Approve or reject join requests | | yes | yes |
 | Give the curator role, change members' roles | | | yes |
 | Remove a member, or restore one | | | yes |
@@ -27,6 +29,18 @@ A web app for marine animal training teams. Track the animals in your facility, 
 Signing up with a new organization name creates the organization and makes you its curator. Signing up with an existing name creates a pending request that a supervisor or curator has to approve. An organization always keeps at least one curator.
 
 Removing a member ends their access immediately but keeps everything they created, including the "Created by" name on their plans. A curator can restore them later. An animal that still has training plans can't be deleted until its plans are.
+
+## Locations and species
+
+Supervisors and curators manage these under **Locations & species** in the sidebar. Everyone in the organization can pick from them, and the animal form offers nothing else. The API enforces this too, so a typo can't get in some other way.
+
+- A new organization starts with a standard list of marine species and no locations. Remove the species you don't use, add your own, or use the one-click buttons to bring back a standard one you removed.
+- Names are compared without regard to case or extra spaces, so "lagoon a" is the same location as "Lagoon A".
+- **Rename** changes the name on every animal that uses it.
+- **Delete** an unused entry straight away. If animals use it, you choose where they go first: another entry, or (for locations) no location. Deleting one and moving its animals into the other is how you merge two spellings of the same place.
+- An animal's location is optional; its species is required.
+
+Organizations that existed before these lists were built their lists automatically the first time the backend started: every species and location already on an animal was added, and spellings that differed only by case or spacing were merged into the most common one. Genuine typos (say "Lagon A") show up as separate entries with their animal counts, so you can merge them.
 
 ## Tech stack
 
@@ -130,7 +144,7 @@ backend/app/
   crud.py         all database operations and permission checks
   auth_utils.py   tokens and the login and role dependencies
   database.py     connection and startup migrations
-  routes/         auth, animals, plans, plan_steps, team
+  routes/         auth, animals, options, plans, plan_steps, team
 backend/admin.py  support tool run from your own computer (see Admin tool)
 frontend/src/
   App.tsx         pages and components
@@ -151,6 +165,7 @@ Everything except signup and login needs an `Authorization: Bearer <token>` head
 - `GET /team/members`, `GET /team/requests`, `POST /team/requests/{id}/approve`, `DELETE /team/requests/{id}`, `PUT /team/members/{id}/role`
 - `DELETE /team/members/{id}`, `GET /team/removed`, `POST /team/members/{id}/restore`
 - `GET`, `POST`, `PUT`, `DELETE` on `/animals/`
+- `GET`, `POST` on `/options/locations` and `/options/species`; `PUT`, `DELETE` on `/options/{locations|species}/{id}` (`DELETE` takes `?move_to=<id>` or, for locations, `?unassign=true`); `GET /options/species/suggestions`
 - `POST /plans/animal/{id}`, `GET /plans/animal/{id}`, and `GET`, `PUT`, `DELETE` on `/plans/{id}`; `POST /plans/{id}/steps`
 - `PUT`, `DELETE` on `/steps/{id}`; `POST /steps/{id}/complete`; `GET`, `POST` on `/steps/{id}/notes`; `PUT`, `DELETE` on `/steps/notes/{id}`
 

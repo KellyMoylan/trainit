@@ -1391,6 +1391,27 @@ td select {
   margin-top: 0;
 }
 
+.page > section + section {
+  margin-top: 40px;
+}
+
+/* A text box with its buttons beside it, wrapping under it on narrow screens */
+.inline-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.row select {
+  width: auto;
+}
+
+.inline-form input {
+  flex: 1 1 220px;
+  width: auto;
+}
+
 /* ---------- Responsive ---------- */
 @media (max-width: 820px) {
   .two-col {

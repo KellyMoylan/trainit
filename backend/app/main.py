@@ -3,10 +3,11 @@ from . import models, crud
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from .routes import auth, plans, animals, plan_steps, team
+from .routes import auth, plans, animals, plan_steps, team, options
 
 Base.metadata.create_all(bind=engine)
 run_migrations()
+crud.backfill_organization_options()
 
 app = FastAPI(title="TrainIt API", description="Animal Training Plan Tracker", version="1.0.0")
 
@@ -37,6 +38,11 @@ app.include_router(plans.router)
 app.include_router(animals.router)
 app.include_router(plan_steps.router)
 app.include_router(team.router)
+app.include_router(options.router)
+
+@app.exception_handler(crud.OptionError)
+def option_error_handler(request: Request, exc: crud.OptionError):
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.message})
 
 @app.exception_handler(crud.PlanEditForbidden)
 def plan_edit_forbidden_handler(request: Request, exc: crud.PlanEditForbidden):

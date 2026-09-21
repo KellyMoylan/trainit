@@ -1,7 +1,10 @@
+from collections import Counter
 from datetime import time
+from typing import Optional
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 from . import models, schemas
+from .database import SessionLocal
 from passlib.context import CryptContext
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -24,7 +27,150 @@ def create_organization(db: Session, organization: schemas.OrganizationCreate):
     db.add(db_organization)
     db.commit()
     db.refresh(db_organization)
+    # A new organization starts with the standard species so animals can be added straight away; locations start empty
+    for name in DEFAULT_SPECIES:
+        db.add(models.OrganizationOption(organization_id=db_organization.id, kind=models.OPTION_SPECIES, name=name))
+    db.commit()
     return db_organization
+
+# ---- Each organization's own lists of locations and species ----
+# Animals keep the name as text, and every path that writes it goes through the list, so one place can't
+# end up as "Lagoon A" and "Lagon A". Comparisons ignore case and extra spaces.
+
+DEFAULT_SPECIES = [
+    "Beluga Whale", "Bottle Nose Dolphin", "Common Dolphin", "Pacific White-sided Dolphin",
+    "False Killer Whale", "Killer Whale", "Black Sea Dolphin", "Manatee", "California Sea Lion",
+    "Sea Otter", "Harbor Seal", "Fur Seal", "Grey Seal", "Northern Elephant Seal", "Walrus",
+]
+
+class OptionError(Exception):
+    def __init__(self, message: str, status_code: int = 400):
+        super().__init__(message)
+        self.message = message
+        self.status_code = status_code
+
+def option_key(value):
+    return " ".join((value or "").split()).lower()
+
+def _org_animals(db: Session, organization_id: int):
+    return db.query(models.Animal).filter(models.Animal.organization_id == organization_id).all()
+
+def _options(db: Session, organization_id: int, kind: str):
+    rows = db.query(models.OrganizationOption).filter(
+        models.OrganizationOption.organization_id == organization_id,
+        models.OrganizationOption.kind == kind,
+    ).all()
+    return sorted(rows, key=lambda option: option_key(option.name))
+
+def _find_option(db: Session, organization_id: int, kind: str, name: str):
+    key = option_key(name)
+    return next((option for option in _options(db, organization_id, kind) if option_key(option.name) == key), None)
+
+def _get_option(db: Session, organization_id: int, kind: str, option_id: int):
+    option = db.query(models.OrganizationOption).filter(
+        models.OrganizationOption.id == option_id,
+        models.OrganizationOption.organization_id == organization_id,
+        models.OrganizationOption.kind == kind,
+    ).first()
+    if not option:
+        raise OptionError("Not found", 404)
+    return option
+
+def list_options(db: Session, organization_id: int, kind: str):
+    in_use = Counter(option_key(getattr(animal, kind)) for animal in _org_animals(db, organization_id))
+    return [
+        {"id": option.id, "name": option.name, "animal_count": in_use[option_key(option.name)]}
+        for option in _options(db, organization_id, kind)
+    ]
+
+def add_option(db: Session, organization_id: int, kind: str, name: str):
+    existing = _find_option(db, organization_id, kind, name)
+    if existing:
+        raise OptionError(f'"{existing.name}" is already in the list', 409)
+    option = models.OrganizationOption(organization_id=organization_id, kind=kind, name=name)
+    db.add(option)
+    db.commit()
+    db.refresh(option)
+    return option
+
+def rename_option(db: Session, organization_id: int, kind: str, option_id: int, name: str):
+    option = _get_option(db, organization_id, kind, option_id)
+    clash = _find_option(db, organization_id, kind, name)
+    if clash and clash.id != option.id:
+        raise OptionError(f'"{clash.name}" already exists. To combine the two, delete one and move its animals to the other.', 409)
+    old_key = option_key(option.name)
+    for animal in _org_animals(db, organization_id):
+        if option_key(getattr(animal, kind)) == old_key:
+            setattr(animal, kind, name)
+    option.name = name
+    db.commit()
+    db.refresh(option)
+    return option
+
+def delete_option(db: Session, organization_id: int, kind: str, option_id: int, move_to_id: Optional[int] = None, unassign: bool = False):
+    """Animals using the entry have to go somewhere: another entry (move_to_id), or, for locations, nowhere (unassign)."""
+    option = _get_option(db, organization_id, kind, option_id)
+    key = option_key(option.name)
+    users = [animal for animal in _org_animals(db, organization_id) if option_key(getattr(animal, kind)) == key]
+    if users:
+        plural = "s" if len(users) != 1 else ""
+        if unassign and kind == models.OPTION_LOCATION:
+            new_value = None
+        elif move_to_id is not None:
+            target = _get_option(db, organization_id, kind, move_to_id)
+            if target.id == option.id:
+                raise OptionError(f"Choose a different {kind} to move the animals to")
+            new_value = target.name
+        else:
+            raise OptionError(f"{len(users)} animal{plural} use this {kind}. Choose where to move them first.", 409)
+        for animal in users:
+            setattr(animal, kind, new_value)
+    db.delete(option)
+    db.commit()
+
+def resolve_animal_choices(db: Session, organization_id: int, species: str, location: Optional[str]):
+    """The organization's spelling of an animal's species and location, or an error if it isn't in the lists."""
+    species_option = _find_option(db, organization_id, models.OPTION_SPECIES, species)
+    if not species_option:
+        raise OptionError(f'"{species.strip()}" is not in your species list. A supervisor can add it under Locations and species.', 422)
+    location_name = None
+    if location and location.strip():
+        location_option = _find_option(db, organization_id, models.OPTION_LOCATION, location)
+        if not location_option:
+            raise OptionError(f'"{location.strip()}" is not in your location list. A supervisor can add it under Locations and species.', 422)
+        location_name = location_option.name
+    return species_option.name, location_name
+
+def backfill_organization_options():
+    """One time, when the lists first exist: build each organization's lists from its animals. Spellings that
+    differ only by case or spacing are merged into the most common one, and the animals are updated to match."""
+    db = SessionLocal()
+    try:
+        if db.query(models.OrganizationOption).first() is not None:
+            return
+        for organization in db.query(models.Organization).all():
+            animals = _org_animals(db, organization.id)
+            for kind, defaults in ((models.OPTION_SPECIES, DEFAULT_SPECIES), (models.OPTION_LOCATION, [])):
+                names = {option_key(name): name for name in defaults}
+                spellings = {}
+                for animal in animals:
+                    value = " ".join((getattr(animal, kind) or "").split())
+                    if value:
+                        spellings.setdefault(option_key(value), Counter())[value] += 1
+                for key, votes in spellings.items():
+                    if key not in names:
+                        names[key] = sorted(votes.items(), key=lambda item: (-item[1], item[0]))[0][0]
+                for animal in animals:
+                    key = option_key(getattr(animal, kind))
+                    if key:
+                        setattr(animal, kind, names[key])
+                    elif kind == models.OPTION_LOCATION:
+                        animal.location = None
+                for name in names.values():
+                    db.add(models.OrganizationOption(organization_id=organization.id, kind=kind, name=name))
+        db.commit()
+    finally:
+        db.close()
 
 def get_user_by_email(db: Session, email: str):
     return db.query(models.User).filter(func.lower(models.User.email) == normalize_email(email)).first()
@@ -97,7 +243,9 @@ def create_animal(db: Session, animal: schemas.AnimalCreate, user_id: int):
     if not user:
         return None
     
-    db_animal = models.Animal(**animal.dict(), owner_id=user_id, organization_id=user.organization_id)
+    fields = animal.dict()
+    fields["species"], fields["location"] = resolve_animal_choices(db, user.organization_id, animal.species, animal.location)
+    db_animal = models.Animal(**fields, owner_id=user_id, organization_id=user.organization_id)
     db.add(db_animal)
     db.commit()
     db.refresh(db_animal)
@@ -129,9 +277,11 @@ def update_animal(db: Session, animal_id: int, user_id: int, animal_update: sche
     if not db_animal:
         return None
     
-    for field, value in animal_update.dict().items():
+    fields = animal_update.dict()
+    fields["species"], fields["location"] = resolve_animal_choices(db, db_animal.organization_id, animal_update.species, animal_update.location)
+    for field, value in fields.items():
         setattr(db_animal, field, value)
-    
+
     db.commit()
     db.refresh(db_animal)
     return db_animal

@@ -123,6 +123,7 @@ function Layout({ user, onLogout, children }: { user: User; onLogout: () => void
           <NavLink to="/animals" className={linkClass}>Animals</NavLink>
           <NavLink to="/view-plans" className={linkClass}>Training plans</NavLink>
           <NavLink to="/training-plans" className={linkClass}>New plan</NavLink>
+          {canManageTeam(user) && <NavLink to="/setup" className={linkClass}>Locations &amp; species</NavLink>}
           {canManageTeam(user) && <NavLink to="/team" className={linkClass}>Team</NavLink>}
         </nav>
         <div className="sidebar-footer">
@@ -374,6 +375,12 @@ function LandingPage({ user }: { user: User }) {
           <p>Build a step-by-step training plan for an animal.</p>
         </Link>
         {canManageTeam(user) && (
+          <Link className="tile" to="/setup">
+            <h3>Locations &amp; species</h3>
+            <p>Set the choices your team picks from when adding animals.</p>
+          </Link>
+        )}
+        {canManageTeam(user) && (
           <Link className="tile" to="/team">
             <h3>Team</h3>
             <p>Approve join requests and see who has access.</p>
@@ -388,24 +395,6 @@ function LandingPage({ user }: { user: User }) {
   )
 }
 
-const SPECIES_OPTIONS = [
-  { value: 'Beluga Whale', label: 'Beluga Whale' },
-  { value: 'Bottle Nose Dolphin', label: 'Bottle Nose Dolphin' },
-  { value: 'Common Dolphin', label: 'Common Dolphin' },
-  { value: 'Pacific White-sided Dolphin', label: 'Pacific White-sided Dolphin' },
-  { value: 'False Killer Whale', label: 'False Killer Whale' },
-  { value: 'Killer Whale', label: 'Killer Whale' },
-  { value: 'Black Sea Dolphin', label: 'Black Sea Dolphin' },
-  { value: 'Manatee', label: 'Manatee' },
-  { value: 'California Sea Lion', label: 'California Sea Lion' },
-  { value: 'Sea Otter', label: 'Sea Otter' },
-  { value: 'Harbor Seal', label: 'Harbor Seal' },
-  { value: 'Fur Seal', label: 'Fur Seal' },
-  { value: 'Grey Seal', label: 'Grey Seal' },
-  { value: 'Northern Elephant Seal', label: 'Elephant Seal' },
-  { value: 'Walrus', label: 'Walrus' },
-]
-
 interface AnimalFormValues {
   name: string
   species: string
@@ -414,10 +403,18 @@ interface AnimalFormValues {
   location: string
 }
 
-function AnimalFields({ values, onChange, idPrefix }: {
+// The species and locations an organization has set up. Both are picked from lists, never typed
+type OptionItem = { id: number; name: string; animal_count: number }
+
+// An animal's current value is kept selectable even if it has since left the list, so opening an edit form never changes it silently
+const withCurrent = (names: string[], current: string) => (current && !names.includes(current) ? [current, ...names] : names)
+
+function AnimalFields({ values, onChange, idPrefix, speciesNames, locationNames }: {
   values: AnimalFormValues
   onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => void
   idPrefix: string
+  speciesNames: string[]
+  locationNames: string[]
 }) {
   return (
     <div className="form-grid">
@@ -427,7 +424,7 @@ function AnimalFields({ values, onChange, idPrefix }: {
       <Field label="Species" htmlFor={`${idPrefix}-species`}>
         <select id={`${idPrefix}-species`} name="species" value={values.species} onChange={onChange} required>
           <option value="" disabled>Select species</option>
-          {SPECIES_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+          {withCurrent(speciesNames, values.species).map(name => <option key={name} value={name}>{name}</option>)}
         </select>
       </Field>
       <Field label="Sex" htmlFor={`${idPrefix}-sex`}>
@@ -449,7 +446,10 @@ function AnimalFields({ values, onChange, idPrefix }: {
         />
       </Field>
       <Field label="Location" htmlFor={`${idPrefix}-location`}>
-        <input id={`${idPrefix}-location`} name="location" value={values.location} onChange={onChange} />
+        <select id={`${idPrefix}-location`} name="location" value={values.location} onChange={onChange}>
+          <option value="">No location</option>
+          {withCurrent(locationNames, values.location).map(name => <option key={name} value={name}>{name}</option>)}
+        </select>
       </Field>
     </div>
   )
@@ -663,8 +663,28 @@ function AnimalManagementPage({ token, canEdit, onLogout }: { token: string; can
   const [sortField, setSortField] = useState<string>('name')
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
   const [deletingId, setDeletingId] = useState<number | null>(null)
+  const [speciesNames, setSpeciesNames] = useState<string[]>([])
+  const [locationNames, setLocationNames] = useState<string[]>([])
+  const [optionsLoaded, setOptionsLoaded] = useState(false)
 
   const handleApiResponse = useApiResponse(onLogout)
+
+  // The lists to choose from come from the organization's setup, so they are loaded fresh each time this page opens
+  useEffect(() => {
+    const headers = { 'Authorization': `Bearer ${token}` }
+    Promise.all([
+      fetch(`${apiUrl}/options/species`, { headers }).then(handleApiResponse),
+      fetch(`${apiUrl}/options/locations`, { headers }).then(handleApiResponse),
+    ])
+      .then(([species, locations]) => {
+        if (species !== null && locations !== null) {
+          setSpeciesNames(species.map((item: OptionItem) => item.name))
+          setLocationNames(locations.map((item: OptionItem) => item.name))
+          setOptionsLoaded(true)
+        }
+      })
+      .catch(() => setError('Failed to load the species and location lists'))
+  }, [token, handleApiResponse])
 
   // Sort animals based on current sort field and direction; empty values sort as blank text
   const sortValue = (animal: AnimalListRow) => {
@@ -761,60 +781,48 @@ function AnimalManagementPage({ token, canEdit, onLogout }: { token: string; can
     setDeletingId(null)
   }
 
-  const handleEditSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
+  // Saves an animal and returns whether it worked. A rejection (say, a location removed since this page opened) is shown as the server worded it
+  const saveAnimal = async (url: string, method: 'POST' | 'PUT', values: AnimalFormValues, failure: string) => {
     setSubmitting(true)
     setError(null)
-    fetch(`${apiUrl}/animals/${editingId}`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
-      body: JSON.stringify({
-        ...editForm,
-        birth_date: editForm.birth_date || null,
-      }),
-    })
-      .then(handleApiResponse)
-      .then(data => {
-        if (data !== null) {
-          setEditingId(null)
-        }
-        setSubmitting(false)
+    try {
+      const response = await fetch(url, {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ ...values, birth_date: values.birth_date || null }),
       })
-      .catch(() => {
-        setError('Failed to update animal')
-        setSubmitting(false)
-      })
+      if (response.status === 401) {
+        onLogout()
+        return false
+      }
+      if (!response.ok) {
+        setError(apiErrorMessage(await response.json().catch(() => null), failure))
+        return false
+      }
+      return true
+    } catch {
+      setError(failure)
+      return false
+    } finally {
+      setSubmitting(false)
+    }
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleEditSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setSubmitting(true)
-    setError(null)
-    fetch(`${apiUrl}/animals/`, {
-      method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
-      body: JSON.stringify({
-        ...form,
-        birth_date: form.birth_date || null,
-      }),
-    })
-      .then(handleApiResponse)
-      .then(data => {
-        if (data !== null) {
-          setForm(emptyForm)
-        }
-        setSubmitting(false)
-      })
-      .catch(() => {
-        setError('Failed to add animal')
-        setSubmitting(false)
-      })
+    if (await saveAnimal(`${apiUrl}/animals/${editingId}`, 'PUT', editForm, 'Failed to update animal')) {
+      setEditingId(null)
+    }
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (await saveAnimal(`${apiUrl}/animals/`, 'POST', form, 'Failed to add animal')) {
+      setForm(emptyForm)
+    }
   }
 
   return (
@@ -826,7 +834,13 @@ function AnimalManagementPage({ token, canEdit, onLogout }: { token: string; can
       {canEdit && (
         <form className="card" onSubmit={handleSubmit}>
           <h3 className="card-title">Add animal</h3>
-          <AnimalFields values={form} onChange={handleChange} idPrefix="add" />
+          <AnimalFields values={form} onChange={handleChange} idPrefix="add" speciesNames={speciesNames} locationNames={locationNames} />
+          {optionsLoaded && (speciesNames.length === 0 || locationNames.length === 0) && (
+            <p className="hint mt">
+              {speciesNames.length === 0 ? 'No species are set up yet. ' : 'No locations are set up yet. '}
+              <Link to="/setup">Set up locations and species</Link>
+            </p>
+          )}
           <div className="form-actions">
             <button type="submit" className="primary" disabled={submitting}>Add animal</button>
           </div>
@@ -835,7 +849,7 @@ function AnimalManagementPage({ token, canEdit, onLogout }: { token: string; can
       {canEdit && editingId !== null && (
         <form className="card" onSubmit={handleEditSubmit}>
           <h3 className="card-title">Edit animal</h3>
-          <AnimalFields values={editForm} onChange={handleEditChange} idPrefix="edit" />
+          <AnimalFields values={editForm} onChange={handleEditChange} idPrefix="edit" speciesNames={speciesNames} locationNames={locationNames} />
           <div className="form-actions">
             <button type="submit" className="primary" disabled={submitting}>Save changes</button>
             <button type="button" onClick={() => setEditingId(null)}>Cancel</button>
@@ -2293,6 +2307,234 @@ function TeamPage({ token, user, onLogout }: { token: string; user: User; onLogo
   )
 }
 
+// One editable list: the organization's locations or its species
+function OptionListEditor({ kind, token, onLogout, title, singular, intro }: {
+  kind: 'locations' | 'species'
+  token: string
+  onLogout: () => void
+  title: string
+  singular: string
+  intro: string
+}) {
+  const [items, setItems] = useState<OptionItem[]>([])
+  const [suggestions, setSuggestions] = useState<string[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [newName, setNewName] = useState('')
+  const [editingId, setEditingId] = useState<number | null>(null)
+  const [editName, setEditName] = useState('')
+  const [deletingId, setDeletingId] = useState<number | null>(null)
+  const [moveTo, setMoveTo] = useState('') // Another entry's id, or 'none' to leave animals without a location
+
+  const authFetch = useCallback(async (path: string, options: RequestInit = {}) => {
+    const response = await fetch(`${apiUrl}${path}`, {
+      ...options,
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+    })
+    if (response.status === 401) {
+      onLogout()
+      return null
+    }
+    if (!response.ok) {
+      throw new Error(apiErrorMessage(await response.json().catch(() => null), `HTTP error! status: ${response.status}`))
+    }
+    return response.status === 204 ? true : response.json()
+  }, [token, onLogout])
+
+  const load = useCallback(async () => {
+    try {
+      const [list, standard] = await Promise.all([
+        authFetch(`/options/${kind}`),
+        kind === 'species' ? authFetch('/options/species/suggestions') : Promise.resolve([]),
+      ])
+      if (list !== null && standard !== null) {
+        setItems(list)
+        setSuggestions(standard)
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : `Failed to load ${title.toLowerCase()}`)
+    } finally {
+      setLoading(false)
+    }
+  }, [authFetch, kind, title])
+
+  useEffect(() => {
+    load()
+  }, [load])
+
+  // Runs a change, then reloads so counts and suggestions are current. Returns whether it worked
+  const act = async (path: string, options: RequestInit) => {
+    setError(null)
+    try {
+      const result = await authFetch(path, options)
+      if (result === null) return false
+      await load()
+      return true
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Request failed')
+      return false
+    }
+  }
+
+  const add = async (name: string) => {
+    if (await act(`/options/${kind}`, { method: 'POST', body: JSON.stringify({ name }) })) setNewName('')
+  }
+
+  const rename = async (item: OptionItem) => {
+    if (await act(`/options/${kind}/${item.id}`, { method: 'PUT', body: JSON.stringify({ name: editName }) })) setEditingId(null)
+  }
+
+  const remove = async (item: OptionItem) => {
+    const query = moveTo === 'none' ? '?unassign=true' : moveTo ? `?move_to=${moveTo}` : ''
+    if (await act(`/options/${kind}/${item.id}${query}`, { method: 'DELETE' })) {
+      setDeletingId(null)
+      setMoveTo('')
+    }
+  }
+
+  const startDelete = (item: OptionItem) => {
+    setError(null)
+    setEditingId(null)
+    setMoveTo('')
+    setDeletingId(item.id)
+  }
+
+  const startRename = (item: OptionItem) => {
+    setError(null)
+    setDeletingId(null)
+    setEditName(item.name)
+    setEditingId(item.id)
+  }
+
+  return (
+    <section>
+      <h2 className="section-title">{title}</h2>
+      <p className="hint">{intro}</p>
+      {error && <div className="error mt">{error}</div>}
+      <form
+        className="card mt"
+        onSubmit={e => {
+          e.preventDefault()
+          if (newName.trim()) add(newName)
+        }}
+      >
+        <div className="inline-form">
+          <input
+            aria-label={`New ${singular} name`}
+            placeholder={`New ${singular}`}
+            value={newName}
+            maxLength={80}
+            onChange={e => setNewName(e.target.value)}
+          />
+          <button type="submit" className="primary" disabled={!newName.trim()}>Add {singular}</button>
+        </div>
+        {suggestions.length > 0 && (
+          <div className="mt">
+            <p className="hint">Standard species you can add with one click:</p>
+            <div className="row">
+              {suggestions.map(name => (
+                <button type="button" className="small" key={name} onClick={() => add(name)}>+ {name}</button>
+              ))}
+            </div>
+          </div>
+        )}
+      </form>
+      {loading ? (
+        <div className="empty">Loading...</div>
+      ) : items.length === 0 ? (
+        <div className="card empty mt">No {title.toLowerCase()} yet. Add the first one above.</div>
+      ) : (
+        <div className="table-wrap mt">
+          <table>
+            <thead>
+              <tr><th>Name</th><th>Animals</th><th></th></tr>
+            </thead>
+            <tbody>
+              {items.map(item => {
+                const others = items.filter(other => other.id !== item.id)
+                return (
+                  <tr key={item.id}>
+                    <td>
+                      {editingId === item.id ? (
+                        <form
+                          className="inline-form"
+                          onSubmit={e => {
+                            e.preventDefault()
+                            rename(item)
+                          }}
+                        >
+                          <input aria-label={`Rename ${item.name}`} value={editName} maxLength={80} autoFocus onChange={e => setEditName(e.target.value)} />
+                          <button type="submit" className="primary small" disabled={!editName.trim()}>Save</button>
+                          <button type="button" className="small" onClick={() => setEditingId(null)}>Cancel</button>
+                        </form>
+                      ) : <strong>{item.name}</strong>}
+                    </td>
+                    <td>{item.animal_count}</td>
+                    <td>
+                      {deletingId === item.id ? (
+                        item.animal_count === 0 ? (
+                          <div className="row">
+                            <span className="muted">Delete {item.name}?</span>
+                            <button className="danger small" onClick={() => remove(item)}>Delete</button>
+                            <button className="small" onClick={() => setDeletingId(null)}>Cancel</button>
+                          </div>
+                        ) : (
+                          <div className="row">
+                            <span className="muted">Move {item.animal_count} {item.animal_count === 1 ? 'animal' : 'animals'} to</span>
+                            <select aria-label={`Where to move animals from ${item.name}`} value={moveTo} onChange={e => setMoveTo(e.target.value)}>
+                              <option value="" disabled>Choose...</option>
+                              {kind === 'locations' && <option value="none">No location</option>}
+                              {others.map(other => <option key={other.id} value={other.id}>{other.name}</option>)}
+                            </select>
+                            <button className="danger small" disabled={!moveTo} onClick={() => remove(item)}>Move and delete</button>
+                            <button className="small" onClick={() => setDeletingId(null)}>Cancel</button>
+                          </div>
+                        )
+                      ) : (
+                        <div className="row">
+                          <button className="small" onClick={() => startRename(item)}>Rename</button>
+                          <button className="small danger-outline" onClick={() => startDelete(item)}>Delete</button>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  )
+}
+
+function SetupPage({ token, onLogout }: { token: string; onLogout: () => void }) {
+  return (
+    <div className="page">
+      <PageHeader
+        title="Locations and species"
+        subtitle="The choices your team picks from when adding or editing an animal. Keeping them in one list stops one place turning into several spellings."
+      />
+      <OptionListEditor
+        kind="locations"
+        token={token}
+        onLogout={onLogout}
+        title="Locations"
+        singular="location"
+        intro="Renaming a location updates every animal in it. To combine two locations, delete one and move its animals to the other."
+      />
+      <OptionListEditor
+        kind="species"
+        token={token}
+        onLogout={onLogout}
+        title="Species"
+        singular="species"
+        intro="Only species on this list can be chosen for an animal. Remove the ones you never work with, or add your own."
+      />
+    </div>
+  )
+}
+
 function App() {
   const [token, setToken] = useState<string | null>(localStorage.getItem('token'))
   const [user, setUser] = useState<User | null>(null)
@@ -2389,7 +2631,8 @@ function App() {
         <Route path="/" element={<LandingPage user={user} />} />
         <Route path="/animals" element={<AnimalManagementPage token={token} canEdit={canManageTeam(user)} onLogout={expireSession} />} />
         <Route path="/profile" element={<ProfilePage token={token} user={user} onUserChange={setUser} onTokenChange={handleLogin} onLogout={expireSession} />} />
-        {canManageTeam(user) && <Route path="/team" element={<TeamPage token={token} user={user} onLogout={expireSession} />} />}
+        {canManageTeam(user) && <Route path="/setup" element={<SetupPage token={token} onLogout={expireSession} />} />}
+        {canManageTeam(user) && <Route path="/team"element={<TeamPage token={token} user={user} onLogout={expireSession} />} />}
         <Route path="/training-plans" element={<TrainingPlanPage token={token} onLogout={expireSession} />} />
         <Route path="/view-plans" element={<TrainingPlansListPage token={token} user={user} onLogout={expireSession} />} />
         <Route path="*" element={<Navigate to="/" replace />} />

@@ -26,6 +26,18 @@ class Organization(Base):
     users = relationship("User", back_populates="organization")
     animals = relationship("Animal", back_populates="organization")
 
+OPTION_LOCATION = "location"
+OPTION_SPECIES = "species"
+
+class OrganizationOption(Base):
+    """One entry in an organization's list of locations or species. Animals store the name itself, and
+    crud keeps the two in step (renames carry over to animals; a name in use can't just be deleted)."""
+    __tablename__ = "organization_options"
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    kind = Column(String, nullable=False)  # OPTION_LOCATION or OPTION_SPECIES
+    name = Column(String, nullable=False)
+
 class User(Base):
     __tablename__ = "users"
     id = Column(Integer, primary_key=True, index=True)
