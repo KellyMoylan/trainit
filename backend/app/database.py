@@ -10,7 +10,13 @@ if SQLALCHEMY_DATABASE_URL.startswith("sqlite"):
         SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
     )
 else:
-    engine = create_engine(SQLALCHEMY_DATABASE_URL)
+    # Waiting forever on an unreachable or locked database would leave the service silently stuck at startup
+    # (Render only reports "no open ports detected"). Failing after a few seconds puts the reason in the log.
+    engine = create_engine(
+        SQLALCHEMY_DATABASE_URL,
+        pool_pre_ping=True,
+        connect_args={"connect_timeout": 10, "options": "-c lock_timeout=15000"},
+    )
 
 SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
 Base = declarative_base()

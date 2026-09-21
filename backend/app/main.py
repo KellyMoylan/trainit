@@ -5,9 +5,14 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from .routes import auth, plans, animals, plan_steps, team, options
 
+# Each step announces itself, so a stuck start shows in the log exactly where it stopped
+print("Startup: creating tables", flush=True)
 Base.metadata.create_all(bind=engine)
+print("Startup: running migrations", flush=True)
 run_migrations()
+print("Startup: building organization lists", flush=True)
 crud.backfill_organization_options()
+print("Startup: done", flush=True)
 
 app = FastAPI(title="TrainIt API", description="Animal Training Plan Tracker", version="1.0.0")
 
